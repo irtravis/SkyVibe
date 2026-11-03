@@ -1,0 +1,6 @@
+{
+  "name": "SkyWatch ADS-B",
+  "description": "Real-time ADS-B aircraft radar & tracker with OLED dark mode, home screen widget, operator lookup, tail number watchlist alarms, and aircraft specs preview.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

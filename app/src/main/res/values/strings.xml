@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SkyWatch ADS-B</string>
+    <string name="widget_name">SkyWatch Radar</string>
+    <string name="widget_description">Real-time ADS-B aircraft scanner with pause control and watchlist alerts</string>
+</resources>
