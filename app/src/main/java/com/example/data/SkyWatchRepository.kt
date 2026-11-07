@@ -223,9 +223,9 @@ class SkyWatchRepository(private val context: Context) {
             results = updateSimulatedFleet(center, radius, watchMap)
         }
 
-        // Update Doppler storm radar and compute aircraft proximity to storm cells
+        // Update Doppler storm radar with real live meteorological observations
         StormRadarManager.tickStormMovement()
-        val currentStorms = StormRadarManager.getStormCells(center, radius)
+        val currentStorms = StormRadarManager.refreshLiveWeather(center, radius)
         _stormCells.value = currentStorms
 
         val enriched = StormRadarManager.enrichAircraftWithStormProximity(results, currentStorms)

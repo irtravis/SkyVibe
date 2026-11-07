@@ -77,14 +77,12 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     private val _mapLayerType = MutableStateFlow(com.example.model.MapLayerType.RADAR)
     val mapLayerType: StateFlow<com.example.model.MapLayerType> = _mapLayerType.asStateFlow()
 
-    private val _isCasting = MutableStateFlow(false)
-    val isCasting: StateFlow<Boolean> = _isCasting.asStateFlow()
+    private val castDiscoveryManager = com.example.util.CastDiscoveryManager(application)
 
-    private val _connectedCastDevice = MutableStateFlow<com.example.model.CastDevice?>(null)
-    val connectedCastDevice: StateFlow<com.example.model.CastDevice?> = _connectedCastDevice.asStateFlow()
-
-    private val _availableCastDevices = MutableStateFlow(com.example.model.CastDevice.DEFAULT_DEVICES)
-    val availableCastDevices: StateFlow<List<com.example.model.CastDevice>> = _availableCastDevices.asStateFlow()
+    val isCasting: StateFlow<Boolean> = castDiscoveryManager.isCasting
+    val connectedCastDevice: StateFlow<com.example.model.CastDevice?> = castDiscoveryManager.connectedDevice
+    val availableCastDevices: StateFlow<List<com.example.model.CastDevice>> = castDiscoveryManager.availableDevices
+    val isScanningCast: StateFlow<Boolean> = castDiscoveryManager.isScanning
 
     private val _selectedTailNumber = MutableStateFlow<String?>(null)
     private val _fallbackSelectedAircraft = MutableStateFlow<Aircraft?>(null)
@@ -138,19 +136,24 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun connectCastDevice(device: com.example.model.CastDevice) {
-        _connectedCastDevice.value = device.copy(isConnected = true)
-        _isCasting.value = true
-        _availableCastDevices.value = _availableCastDevices.value.map {
-            it.copy(isConnected = it.id == device.id)
-        }
+        castDiscoveryManager.connectDevice(device)
     }
 
     fun disconnectCast() {
-        _connectedCastDevice.value = null
-        _isCasting.value = false
-        _availableCastDevices.value = _availableCastDevices.value.map {
-            it.copy(isConnected = false)
-        }
+        castDiscoveryManager.disconnectCast()
+    }
+
+    fun refreshCastScan() {
+        castDiscoveryManager.refreshScan()
+    }
+
+    fun launchSystemCast() {
+        com.example.util.CastDiscoveryManager.launchSystemCast(getApplication())
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        castDiscoveryManager.stopDiscovery()
     }
 
     fun togglePaused() {

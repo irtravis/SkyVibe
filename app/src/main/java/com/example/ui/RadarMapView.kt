@@ -73,7 +73,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -199,6 +205,53 @@ fun RadarMapView(
         val centerY = height / 2f
         val maxRadiusPx = minOf(centerX, centerY) * (if (isMaximized) 0.94f else 0.88f)
 
+        // Real Satellite & Terrain Bounding Box Map Imagery (ArcGIS Global World Imagery & Topo Map)
+        val latDelta = scanRadiusNm / 60.0
+        val lonDelta = scanRadiusNm / (60.0 * cos(Math.toRadians(radarCenter.latitude)).coerceAtLeast(0.2))
+        val minLat = radarCenter.latitude - latDelta
+        val maxLat = radarCenter.latitude + latDelta
+        val minLon = radarCenter.longitude - lonDelta
+        val maxLon = radarCenter.longitude + lonDelta
+
+        val mapExportUrl = remember(radarCenter.latitude, radarCenter.longitude, scanRadiusNm, mapLayerType) {
+            when (mapLayerType) {
+                MapLayerType.SATELLITE ->
+                    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=$minLon,$minLat,$maxLon,$maxLat&bboxSR=4326&imageSR=4326&size=1024,1024&format=jpg&f=image"
+                MapLayerType.TERRAIN ->
+                    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/export?bbox=$minLon,$minLat,$maxLon,$maxLat&bboxSR=4326&imageSR=4326&size=1024,1024&format=jpg&f=image"
+                MapLayerType.RADAR -> null
+            }
+        }
+
+        // Real Satellite Aerial Imagery or Topographic Elevation Layer (rendered inside the radar circle)
+        if (mapExportUrl != null) {
+            val diameterDp = with(LocalDensity.current) { (maxRadiusPx * 2).toDp() }
+            Box(
+                modifier = Modifier
+                    .size(diameterDp)
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        scaleX = zoomScale
+                        scaleY = zoomScale
+                        translationX = panOffset.x
+                        translationY = panOffset.y
+                        rotationZ = animatedRotationDeg
+                    }
+                    .clip(CircleShape)
+                    .background(Color.Black)
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(mapExportUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "${mapLayerType.displayName} Map Layer",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -320,7 +373,8 @@ fun RadarMapView(
                             centerY = centerY,
                             maxRadiusPx = maxRadiusPx,
                             maxRangeNm = scanRadiusNm,
-                            textMeasurer = textMeasurer
+                            textMeasurer = textMeasurer,
+                            mapRotationDeg = animatedRotationDeg
                         )
                     }
                     MapLayerType.TERRAIN -> {
@@ -329,7 +383,8 @@ fun RadarMapView(
                             centerY = centerY,
                             maxRadiusPx = maxRadiusPx,
                             maxRangeNm = scanRadiusNm,
-                            textMeasurer = textMeasurer
+                            textMeasurer = textMeasurer,
+                            mapRotationDeg = animatedRotationDeg
                         )
                     }
                 }
@@ -476,8 +531,14 @@ fun RadarMapView(
                             .testTag("radar_hud_storm_toggle")
                     ) {
                         Text(
-                            text = if (isStormRadarEnabled) "⛈ WX:ON" else "⛈ WX:OFF",
-                            color = if (isStormRadarEnabled) Color(0xFFEA80FC) else AvionicsTextDim,
+                            text = if (isStormRadarEnabled) {
+                                if (com.example.data.StormRadarManager.hasActivePrecipitation) "⛈ WX: STORM"
+                                else "☀️ WX: CLEAR"
+                            } else "⛈ WX: OFF",
+                            color = if (isStormRadarEnabled) {
+                                if (com.example.data.StormRadarManager.hasActivePrecipitation) Color(0xFFEA80FC)
+                                else RadarGreen
+                            } else AvionicsTextDim,
                             fontSize = 9.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
@@ -1115,126 +1176,184 @@ private fun DrawScope.drawRadarSweep(
     }
 }
 
-// 2. SATELLITE LAYER DRAWING (Nocturnal Earth Orbit View)
+// 2. SATELLITE LAYER OVERLAY (Over Real Orbital Satellite Imagery)
 private fun DrawScope.drawSatelliteLayer(
     centerX: Float,
     centerY: Float,
     maxRadiusPx: Float,
     maxRangeNm: Double,
-    textMeasurer: TextMeasurer
+    textMeasurer: TextMeasurer,
+    mapRotationDeg: Float = 0f
 ) {
-    // Deep nocturnal oceanic gradient
-    val oceanBrush = Brush.radialGradient(
-        colors = listOf(Color(0xFF05131E), Color(0xFF02070D), Color(0xFF000306)),
-        center = Offset(centerX, centerY),
-        radius = maxRadiusPx * 1.2f
-    )
-    drawCircle(brush = oceanBrush, radius = maxRadiusPx, center = Offset(centerX, centerY))
-
-    // Atmospheric limb ring
+    // Outer atmospheric cyan perimeter ring
     drawCircle(
-        color = Color(0x3300E5FF),
+        color = Color(0x9900E5FF),
         radius = maxRadiusPx,
         center = Offset(centerX, centerY),
-        style = Stroke(width = 2.dp.toPx())
+        style = Stroke(width = 1.5.dp.toPx())
     )
 
-    // Orbital latitude & longitude grid
-    val gridColor = Color(0x1A00E5FF)
-    listOf(0.33f, 0.66f, 1.0f).forEach { r ->
+    // Orbital distance range rings (25%, 50%, 75%, 100%)
+    val ringRatios = listOf(0.25f, 0.50f, 0.75f, 1.0f)
+    val gridColor = Color(0x4400E5FF)
+    ringRatios.forEach { ratio ->
+        val radiusPx = maxRadiusPx * ratio
         drawCircle(
             color = gridColor,
-            radius = maxRadiusPx * r,
+            radius = radiusPx,
             center = Offset(centerX, centerY),
             style = Stroke(width = 1.dp.toPx())
         )
-    }
 
-    // Simulated nocturnal city cluster lights & coastal landmass silhouettes
-    val cityGlowColor = Color(0x55FFD580)
-    val clusterOffsets = listOf(
-        Offset(centerX - maxRadiusPx * 0.4f, centerY - maxRadiusPx * 0.3f),
-        Offset(centerX + maxRadiusPx * 0.35f, centerY + maxRadiusPx * 0.25f),
-        Offset(centerX - maxRadiusPx * 0.15f, centerY + maxRadiusPx * 0.5f),
-        Offset(centerX + maxRadiusPx * 0.5f, centerY - maxRadiusPx * 0.45f)
-    )
-
-    clusterOffsets.forEach { pos ->
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(cityGlowColor, Color(0x11FFD580), Color.Transparent),
-                center = pos,
-                radius = 45.dp.toPx()
-            ),
-            radius = 45.dp.toPx(),
-            center = pos
+        val ringNm = (maxRangeNm * ratio).toInt()
+        val textLayoutResult = textMeasurer.measure(
+            text = "$ringNm NM",
+            style = TextStyle(
+                color = Color(0xDD00E5FF),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
         )
+        val textPos = Offset(centerX + 6.dp.toPx(), centerY - radiusPx + 2.dp.toPx())
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = textPos) {
+                drawText(textLayoutResult = textLayoutResult, topLeft = textPos)
+            }
+        } else {
+            drawText(textLayoutResult = textLayoutResult, topLeft = textPos)
+        }
     }
 
-    // Satellite Telemetry Label
-    val satResult = textMeasurer.measure(
-        text = "ORBITAL SATELLITE COMPOSITE · IR NIGHT SENSOR",
-        style = TextStyle(color = Color(0x8800E5FF), fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+    // Origin Crosshair at Airport / GPS Center
+    val crossColor = Color(0x6600E5FF)
+    drawLine(crossColor, Offset(centerX - 16.dp.toPx(), centerY), Offset(centerX + 16.dp.toPx(), centerY), 1.dp.toPx())
+    drawLine(crossColor, Offset(centerX, centerY - 16.dp.toPx()), Offset(centerX, centerY + 16.dp.toPx()), 1.dp.toPx())
+
+    // Cardinal Points
+    val cardinals = listOf(
+        "000° N" to Offset(centerX - 14.dp.toPx(), centerY - maxRadiusPx - 16.dp.toPx()),
+        "090° E" to Offset(centerX + maxRadiusPx + 4.dp.toPx(), centerY - 6.dp.toPx()),
+        "180° S" to Offset(centerX - 14.dp.toPx(), centerY + maxRadiusPx + 4.dp.toPx()),
+        "270° W" to Offset(centerX - maxRadiusPx - 38.dp.toPx(), centerY - 6.dp.toPx())
     )
-    drawText(satResult, topLeft = Offset(centerX - maxRadiusPx * 0.65f, centerY + maxRadiusPx * 0.85f))
+    cardinals.forEach { (label, pos) ->
+        val result = textMeasurer.measure(
+            text = label,
+            style = TextStyle(color = RadarCyan, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        )
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = pos) {
+                drawText(result, topLeft = pos)
+            }
+        } else {
+            drawText(result, topLeft = pos)
+        }
+    }
+
+    // Satellite Attribution Label
+    val satResult = textMeasurer.measure(
+        text = "SATELLITE · DIGITALGLOBE / EARTHSTAR / USGS",
+        style = TextStyle(color = Color(0xDD00E5FF), fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+    )
+    val labelPos = Offset(centerX - maxRadiusPx * 0.55f, centerY + maxRadiusPx * 0.88f)
+    if (mapRotationDeg != 0f) {
+        rotate(degrees = -mapRotationDeg, pivot = labelPos) {
+            drawText(satResult, topLeft = labelPos)
+        }
+    } else {
+        drawText(satResult, topLeft = labelPos)
+    }
 }
 
-// 3. TERRAIN LAYER DRAWING (Aeronautical Sectional Topography)
+// 3. TERRAIN LAYER OVERLAY (Over Real Topographic Elevation Map)
 private fun DrawScope.drawTerrainLayer(
     centerX: Float,
     centerY: Float,
     maxRadiusPx: Float,
     maxRangeNm: Double,
-    textMeasurer: TextMeasurer
+    textMeasurer: TextMeasurer,
+    mapRotationDeg: Float = 0f
 ) {
-    // Topographic elevation contour bands (hypsometric shading)
-    val terrainColors = listOf(
-        Color(0xFF0F1E15) to 1.0f,
-        Color(0xFF1B2A1E) to 0.75f,
-        Color(0xFF2C3520) to 0.50f,
-        Color(0xFF3E3622) to 0.28f,
-        Color(0xFF4A3828) to 0.14f
+    // Outer topographic amber perimeter ring
+    drawCircle(
+        color = Color(0x99FFA000),
+        radius = maxRadiusPx,
+        center = Offset(centerX, centerY),
+        style = Stroke(width = 1.5.dp.toPx())
     )
 
-    terrainColors.forEach { (color, ratio) ->
+    // Topographic range rings
+    val ringRatios = listOf(0.25f, 0.50f, 0.75f, 1.0f)
+    val ringColor = Color(0x44FFA000)
+    ringRatios.forEach { ratio ->
+        val radiusPx = maxRadiusPx * ratio
         drawCircle(
-            color = color,
-            radius = maxRadiusPx * ratio,
-            center = Offset(centerX, centerY)
-        )
-        drawCircle(
-            color = Color(0x33FFA000),
-            radius = maxRadiusPx * ratio,
+            color = ringColor,
+            radius = radiusPx,
             center = Offset(centerX, centerY),
-            style = Stroke(width = 0.8.dp.toPx())
+            style = Stroke(width = 1.dp.toPx())
         )
+
+        val ringNm = (maxRangeNm * ratio).toInt()
+        val textLayoutResult = textMeasurer.measure(
+            text = "$ringNm NM",
+            style = TextStyle(
+                color = Color(0xDDFFA000),
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+        )
+        val textPos = Offset(centerX + 6.dp.toPx(), centerY - radiusPx + 2.dp.toPx())
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = textPos) {
+                drawText(textLayoutResult = textLayoutResult, topLeft = textPos)
+            }
+        } else {
+            drawText(textLayoutResult = textLayoutResult, topLeft = textPos)
+        }
     }
 
-    // Airport Runway Intersect at Radar Origin (Center)
+    // Airport Runway Alignment Crosshair at Center
     val runwayColor = Color(0xFFFFFFFF)
     drawLine(runwayColor, Offset(centerX - 16.dp.toPx(), centerY - 10.dp.toPx()), Offset(centerX + 16.dp.toPx(), centerY + 10.dp.toPx()), 2.5.dp.toPx())
     drawLine(runwayColor, Offset(centerX - 8.dp.toPx(), centerY + 14.dp.toPx()), Offset(centerX + 8.dp.toPx(), centerY - 14.dp.toPx()), 2.dp.toPx())
 
-    // Elevation Spot Heights & Sectional Label
-    val spotHeights = listOf(
-        "^ 4,210 ft" to Offset(centerX - maxRadiusPx * 0.45f, centerY - maxRadiusPx * 0.2f),
-        "^ 6,684 ft" to Offset(centerX + maxRadiusPx * 0.38f, centerY - maxRadiusPx * 0.35f),
-        "^ 2,150 ft" to Offset(centerX - maxRadiusPx * 0.25f, centerY + maxRadiusPx * 0.4f)
+    // Cardinal Points
+    val cardinals = listOf(
+        "000° N" to Offset(centerX - 14.dp.toPx(), centerY - maxRadiusPx - 16.dp.toPx()),
+        "090° E" to Offset(centerX + maxRadiusPx + 4.dp.toPx(), centerY - 6.dp.toPx()),
+        "180° S" to Offset(centerX - 14.dp.toPx(), centerY + maxRadiusPx + 4.dp.toPx()),
+        "270° W" to Offset(centerX - maxRadiusPx - 38.dp.toPx(), centerY - 6.dp.toPx())
     )
-
-    spotHeights.forEach { (label, pos) ->
-        val res = textMeasurer.measure(
+    cardinals.forEach { (label, pos) ->
+        val result = textMeasurer.measure(
             text = label,
-            style = TextStyle(color = RadarAmber, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+            style = TextStyle(color = RadarAmber, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
         )
-        drawText(res, topLeft = pos)
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = pos) {
+                drawText(result, topLeft = pos)
+            }
+        } else {
+            drawText(result, topLeft = pos)
+        }
     }
 
+    // Topography Attribution Label
     val terrainTag = textMeasurer.measure(
-        text = "SECTIONAL HYPSOMETRIC ELEVATION · CONTOURS MSL",
-        style = TextStyle(color = Color(0x88FFA000), fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+        text = "TOPOGRAPHY · USGS ELEVATION & CONTOURS MSL",
+        style = TextStyle(color = Color(0xDDFFA000), fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
     )
-    drawText(terrainTag, topLeft = Offset(centerX - maxRadiusPx * 0.65f, centerY + maxRadiusPx * 0.85f))
+    val labelPos = Offset(centerX - maxRadiusPx * 0.55f, centerY + maxRadiusPx * 0.88f)
+    if (mapRotationDeg != 0f) {
+        rotate(degrees = -mapRotationDeg, pivot = labelPos) {
+            drawText(terrainTag, topLeft = labelPos)
+        }
+    } else {
+        drawText(terrainTag, topLeft = labelPos)
+    }
 }
 
 private fun DrawScope.drawAircraftTarget(

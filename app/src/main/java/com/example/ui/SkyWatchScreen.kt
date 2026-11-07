@@ -98,6 +98,7 @@ fun SkyWatchScreen(
     val isCasting by viewModel.isCasting.collectAsState()
     val connectedCastDevice by viewModel.connectedCastDevice.collectAsState()
     val availableCastDevices by viewModel.availableCastDevices.collectAsState()
+    val isScanningCast by viewModel.isScanningCast.collectAsState()
     val selectedTypeForInfo by viewModel.selectedTypeForInfo.collectAsState()
     val selectedAircraftForInfo by viewModel.selectedAircraftForInfo.collectAsState()
     val selectedAircraft by viewModel.selectedAircraft.collectAsState()
@@ -774,11 +775,18 @@ fun SkyWatchScreen(
                 isCasting = isCasting,
                 connectedDevice = connectedCastDevice,
                 availableDevices = availableCastDevices,
+                isScanning = isScanningCast,
                 onConnectDevice = { device ->
                     viewModel.connectCastDevice(device)
                 },
                 onDisconnectCast = {
                     viewModel.disconnectCast()
+                },
+                onRefreshScan = {
+                    viewModel.refreshCastScan()
+                },
+                onLaunchSystemCast = {
+                    viewModel.launchSystemCast()
                 },
                 onDismiss = {
                     showCastDialog = false
