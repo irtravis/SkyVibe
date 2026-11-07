@@ -22,8 +22,13 @@ import androidx.compose.material.icons.filled.AddAlert
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.AirplanemodeActive
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -270,6 +275,7 @@ fun WatchlistAlarmView(
 
         // Section 2: Active Watchlist Entries
         item {
+            val context = LocalContext.current
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -283,6 +289,25 @@ fun WatchlistAlarmView(
                     fontFamily = FontFamily.Monospace,
                     letterSpacing = 1.sp
                 )
+
+                Button(
+                    onClick = {
+                        val kml = com.example.util.KmlExportManager.generateLiveAirspaceSnapshotKml(currentAircraft, radarCenter.name)
+                        com.example.util.KmlExportManager.exportAndShareKml(context, kml, "SkyWatch-Live-Airspace.kml")
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF00301B),
+                        contentColor = RadarGreen
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, RadarGreen),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(28.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Public, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "EXPORT KML", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
             }
         }
 
@@ -332,6 +357,25 @@ fun WatchlistAlarmView(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (activeHit != null) {
+                                    if (activeHit.isHelicopter) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_helicopter),
+                                            contentDescription = "Helicopter",
+                                            tint = RadarCyan,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.AirplanemodeActive,
+                                            contentDescription = "Airplane",
+                                            tint = RadarGreen,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+
                                 Text(
                                     text = item.tailNumber,
                                     color = AvionicsTextPrimary,

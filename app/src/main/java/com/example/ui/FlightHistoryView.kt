@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.VerticalAlignTop
@@ -42,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -116,6 +118,7 @@ fun FlightHistoryView(
         mutableIntStateOf((tailPoints.size - 1).coerceAtLeast(0))
     }
     val activeScrubPoint = tailPoints.getOrNull(scrubIndex) ?: lastPoint
+    var showKmlDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -142,7 +145,7 @@ fun FlightHistoryView(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "RECORDED WATCHLIST FLIGHT TRACKS",
+                            text = "WATCHLIST FLIGHT TRACKS",
                             color = RadarCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -151,14 +154,39 @@ fun FlightHistoryView(
                         )
                     }
 
-                    if (tracks.isNotEmpty()) {
-                        IconButton(onClick = onClearTracks, modifier = Modifier.size(24.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Clear Flight Tracks",
-                                tint = AvionicsTextDim,
-                                modifier = Modifier.size(16.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // KML Export Button
+                        Button(
+                            onClick = { showKmlDialog = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00301B),
+                                contentColor = RadarGreen
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, RadarGreen),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Public, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "EXPORT .KML",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
                             )
+                        }
+
+                        if (tracks.isNotEmpty()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(onClick = onClearTracks, modifier = Modifier.size(24.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Clear Flight Tracks",
+                                    tint = AvionicsTextDim,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -601,6 +629,14 @@ fun FlightHistoryView(
                 }
             }
         }
+    }
+
+    if (showKmlDialog) {
+        KmlExportDialog(
+            tracks = tracks,
+            selectedTail = effectiveTail,
+            onDismiss = { showKmlDialog = false }
+        )
     }
 }
 

@@ -28,8 +28,18 @@ data class Aircraft(
     val nearestStormDbz: Int? = null,
     val nearestStormSeverity: StormSeverity? = null,
     val isInsideStorm: Boolean = false,
-    val isNearStorm: Boolean = false
+    val isNearStorm: Boolean = false,
+    // Craft Category & Differentiation
+    val craftCategory: CraftCategory = CraftCategory.AIRPLANE,
+    val publicRegistry: PublicRegistryData? = null
 ) {
+    val isHelicopter: Boolean
+        get() = craftCategory == CraftCategory.HELICOPTER ||
+                aircraftTypeCode in listOf("B06", "B407", "UH60", "EC35", "EC45", "H145", "S76", "R44", "R22", "R66", "AS50", "CH47") ||
+                aircraftTypeName.contains("Helicopter", ignoreCase = true) ||
+                aircraftTypeName.contains("Rotorcraft", ignoreCase = true) ||
+                callsign.startsWith("HELI") || callsign.startsWith("MEDEVAC") || callsign.startsWith("LIFE")
+
     val formattedAltitude: String
         get() = if (onGround) "GROUND" else if (altitudeFt >= 18000) "FL${altitudeFt / 100}" else "${altitudeFt} ft"
 

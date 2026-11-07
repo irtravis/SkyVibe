@@ -144,5 +144,91 @@ class ExampleUnitTest {
         assertEquals(0.0, resultPlane.nearestStormDistanceNm ?: 100.0, 0.01)
         assertEquals(extremeCell.name, resultPlane.nearestStormName)
     }
+
+    @Test
+    fun testHelicopterDifferentiationAndPhotos() {
+        val bell206 = AircraftRegistry.getAircraftType("B06")
+        assertEquals(com.example.model.CraftCategory.HELICOPTER, bell206.craftCategory)
+        assertTrue(bell206.isHelicopter)
+        assertEquals("plane_bell_206", bell206.drawableResName)
+
+        val blackHawk = AircraftRegistry.getAircraftType("UH60")
+        assertEquals(com.example.model.CraftCategory.HELICOPTER, blackHawk.craftCategory)
+        assertTrue(blackHawk.isHelicopter)
+        assertEquals("plane_black_hawk", blackHawk.drawableResName)
+
+        val c172 = AircraftRegistry.getAircraftType("C172")
+        assertEquals(com.example.model.CraftCategory.GENERAL_AVIATION, c172.craftCategory)
+        assertEquals("plane_cessna_172", c172.drawableResName)
+
+        val b77w = AircraftRegistry.getAircraftType("B77W")
+        assertEquals(com.example.model.CraftCategory.JET, b77w.craftCategory)
+        assertEquals("plane_boeing_777", b77w.drawableResName)
+
+        // Aircraft model helper
+        val heliCraft = com.example.model.Aircraft(
+            icao24 = "a206b1",
+            callsign = "HELI04",
+            tailNumber = "N206JR",
+            registeredOperator = "Appalachian Rotorcraft Charters",
+            aircraftTypeCode = "B06",
+            aircraftTypeName = "Bell 206 JetRanger",
+            latitude = 36.5,
+            longitude = -82.4,
+            altitudeFt = 2200,
+            velocityKts = 115,
+            headingDeg = 120f,
+            verticalRateFpm = 0,
+            squawk = "1200",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis(),
+            craftCategory = com.example.model.CraftCategory.HELICOPTER
+        )
+        assertTrue(heliCraft.isHelicopter)
+    }
+
+    @Test
+    fun testPublicRegistryDataResolution() {
+        val deltaReg = AircraftRegistry.resolvePublicRegistry("N356DN", "DAL1420", "A3568F", "Delta Air Lines")
+        assertEquals("DELTA AIR LINES INC", deltaReg.registeredOwner)
+        assertTrue(deltaReg.registeredParty.contains("CORPORATION SERVICE COMPANY"))
+        assertTrue(deltaReg.certificateStatus.contains("Valid"))
+        assertEquals("Federal Aviation Administration (FAA)", deltaReg.registryAuthority)
+
+        val heliReg = AircraftRegistry.resolvePublicRegistry("N206JR", "HELI04", "A206B1", "Appalachian Rotorcraft Charters")
+        assertEquals("APPALACHIAN ROTORCRAFT CHARTERS LLC", heliReg.registeredOwner)
+        assertTrue(heliReg.registeredParty.contains("PILOT") || heliReg.registeredParty.contains("Representative"))
+        assertEquals("Tennessee", heliReg.registryStateOrProvince)
+    }
+
+    @Test
+    fun testKmlExportGeneration() {
+        val sampleTrack = listOf(
+            com.example.model.FlightTrackPointEntity(
+                tailNumber = "N856UA",
+                callsign = "UAL452",
+                registeredOperator = "United Airlines",
+                aircraftType = "Boeing 777-300ER",
+                timestamp = System.currentTimeMillis(),
+                latitude = 40.64,
+                longitude = -73.78,
+                altitudeFt = 12000,
+                velocityKts = 380,
+                headingDeg = 85f
+            )
+        )
+
+        val kml = com.example.util.KmlExportManager.generateWatchlistTracksKml(sampleTrack, "N856UA")
+        assertTrue(kml.contains("<kml"))
+        assertTrue(kml.contains("<Document>"))
+        assertTrue(kml.contains("<LineString>"))
+        assertTrue(kml.contains("<altitudeMode>absolute</altitudeMode>"))
+        assertTrue(kml.contains("N856UA"))
+
+        val streamKml = com.example.util.KmlExportManager.generateLiveStreamingNetworkLinkKml()
+        assertTrue(streamKml.contains("<NetworkLink>"))
+        assertTrue(streamKml.contains("<refreshMode>onInterval</refreshMode>"))
+        assertTrue(streamKml.contains("<refreshInterval>5</refreshInterval>"))
+    }
 }
 

@@ -335,6 +335,7 @@ class SkyWatchRepository(private val context: Context) {
             val dist = calculateDistanceNm(center.latitude, center.longitude, lat, lon)
             val isWatched = watchMap.containsKey(tailNumber.uppercase()) || watchMap.containsKey(callsign.uppercase())
             val watchItem = watchMap[tailNumber.uppercase()] ?: watchMap[callsign.uppercase()]
+            val publicReg = AircraftRegistry.resolvePublicRegistry(tailNumber, callsign, icao24, operator)
 
             return Aircraft(
                 icao24 = icao24,
@@ -354,7 +355,9 @@ class SkyWatchRepository(private val context: Context) {
                 lastContactTimestamp = System.currentTimeMillis(),
                 distanceNm = dist,
                 isWatchlisted = isWatched,
-                watchlistLabel = watchItem?.label
+                watchlistLabel = watchItem?.label,
+                craftCategory = typeInfo.craftCategory,
+                publicRegistry = publicReg
             )
         } catch (_: Exception) {
             return null
@@ -364,6 +367,9 @@ class SkyWatchRepository(private val context: Context) {
     private fun selectTypeHeuristic(callsign: String, altitudeFt: Int): com.example.model.AircraftTypeInfo {
         val cs = callsign.uppercase()
         return when {
+            cs.startsWith("HELI") || cs.startsWith("CHOP") -> AircraftRegistry.getAircraftType("B06")
+            cs.startsWith("MED") || cs.startsWith("LIFE") -> AircraftRegistry.getAircraftType("EC35")
+            cs.startsWith("ARMY") || cs.startsWith("HAWK") -> AircraftRegistry.getAircraftType("UH60")
             cs.startsWith("EJA") || cs.startsWith("LXJ") || cs.startsWith("VJT") || cs.startsWith("XOJ") -> AircraftRegistry.getAircraftType("GLF6")
             altitudeFt > 36000 -> AircraftRegistry.getAircraftType("B77W")
             altitudeFt < 8000 && cs.startsWith("N") -> AircraftRegistry.getAircraftType("C172")
@@ -383,6 +389,9 @@ class SkyWatchRepository(private val context: Context) {
             TargetTemplate("A099E3", "EJA650", "N990QS", "NetJets Aviation", "GLF6", 45000, 520, 140f, 14.1),
             TargetTemplate("A77890", "FDX1124", "N778FD", "FedEx Express", "B77W", 31000, 490, 45f, 32.0),
             TargetTemplate("A43102", "N431SP", "N431SP", "Private Skyhawk Owner", "C172", 4500, 120, 215f, 6.4),
+            TargetTemplate("A206B1", "HELI04", "N206JR", "Appalachian Rotorcraft Charters", "B06", 2200, 115, 130f, 8.5),
+            TargetTemplate("A608F2", "MEDEVAC1", "N135LS", "Air Methods / Life Star Medevac", "EC35", 1800, 130, 290f, 11.2),
+            TargetTemplate("A984B7", "PAT88", "82-2371", "United States Army Aviation", "UH60", 3500, 145, 45f, 15.0),
             TargetTemplate("A6783A", "VIPER01", "88-0435", "United States Air Force", "F16", 26000, 680, 280f, 39.5),
             TargetTemplate("A2389C", "LXJ412", "N412FX", "Flexjet LLC", "GLF6", 41000, 505, 175f, 21.0),
             TargetTemplate("A9981D", "JBU902", "N998JB", "JetBlue Airways", "A320", 19000, 390, 110f, 16.8),
@@ -391,7 +400,7 @@ class SkyWatchRepository(private val context: Context) {
         )
 
         templates.forEachIndexed { i, t ->
-            val angleRad = Math.toRadians((i * 30.0 + Random.nextDouble(-10.0, 10.0)))
+            val angleRad = Math.toRadians((i * 24.0 + Random.nextDouble(-8.0, 8.0)))
             val dist = t.initialDistNm
             val lat = center.latitude + (dist / 60.0) * cos(angleRad)
             val lon = center.longitude + (dist / (60.0 * cos(Math.toRadians(center.latitude)))) * sin(angleRad)
@@ -431,6 +440,13 @@ class SkyWatchRepository(private val context: Context) {
             target.lat += deltaLat
             target.lon += deltaLon
 
+            // Realistic live ADS-B telemetry variations per scan cycle
+            val altJitter = Random.nextInt(-35, 45)
+            val spdJitter = Random.nextInt(-2, 3)
+            val liveAlt = (target.altitudeFt + altJitter).coerceIn(1200, 43000)
+            val liveSpd = (target.speedKts + spdJitter).coerceIn(70, 580)
+            val vertRate = (altJitter * 20).coerceIn(-1200, 1200)
+
             val currentDist = calculateDistanceNm(center.latitude, center.longitude, target.lat, target.lon)
             
             // If drifted too far, steer back toward center
@@ -448,6 +464,7 @@ class SkyWatchRepository(private val context: Context) {
                     watchMap[target.icao24.uppercase()]
 
             val typeInfo = AircraftRegistry.getAircraftType(target.typeCode)
+            val publicReg = AircraftRegistry.resolvePublicRegistry(target.tailNumber, target.callsign, target.icao24, target.operator)
 
             list.add(
                 Aircraft(
@@ -459,16 +476,18 @@ class SkyWatchRepository(private val context: Context) {
                     aircraftTypeName = typeInfo.modelName,
                     latitude = target.lat,
                     longitude = target.lon,
-                    altitudeFt = target.altitudeFt,
-                    velocityKts = target.speedKts,
+                    altitudeFt = liveAlt,
+                    velocityKts = liveSpd,
                     headingDeg = target.headingDeg,
-                    verticalRateFpm = 0,
+                    verticalRateFpm = vertRate,
                     squawk = "4721",
                     onGround = false,
                     lastContactTimestamp = System.currentTimeMillis(),
                     distanceNm = currentDist,
                     isWatchlisted = isWatched,
-                    watchlistLabel = watchItem?.label
+                    watchlistLabel = watchItem?.label,
+                    craftCategory = typeInfo.craftCategory,
+                    publicRegistry = publicReg
                 )
             )
         }

@@ -25,13 +25,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AirplanemodeActive
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,7 +55,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +71,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextMeasurer
@@ -68,9 +86,11 @@ import com.example.data.AircraftRegistry
 import com.example.model.Aircraft
 import com.example.model.AircraftTypeInfo
 import com.example.model.MapLayerType
+import com.example.model.MapOrientationMode
 import com.example.model.RadarCenter
 import com.example.model.StormCell
 import com.example.model.StormSeverity
+import com.example.util.rememberDeviceHeading
 import com.example.ui.theme.AvionicsTextDim
 import com.example.ui.theme.AvionicsTextPrimary
 import com.example.ui.theme.AvionicsTextSecondary
@@ -84,6 +104,7 @@ import com.example.ui.theme.RadarRedAlert
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -96,15 +117,56 @@ fun RadarMapView(
     mapLayerType: MapLayerType = MapLayerType.RADAR,
     stormCells: List<StormCell> = emptyList(),
     isStormRadarEnabled: Boolean = true,
+    selectedAircraft: Aircraft? = null,
+    isMaximized: Boolean = false,
+    onToggleMaximize: () -> Unit = {},
     onMapLayerChanged: (MapLayerType) -> Unit = {},
     onToggleStormRadar: () -> Unit = {},
     onOpenLocationPicker: () -> Unit = {},
     onSnapGps: () -> Unit = {},
     onAircraftSelected: (Aircraft) -> Unit,
-    onViewTypeDetails: (AircraftTypeInfo) -> Unit,
+    onDeselectAircraft: () -> Unit = {},
+    onViewTypeDetails: (AircraftTypeInfo, Aircraft?) -> Unit,
     onToggleWatchlist: (String) -> Unit
 ) {
-    var selectedAircraft by remember { mutableStateOf<Aircraft?>(null) }
+    // Continuously resolve the live updating instance of the selected aircraft from the latest telemetry scan
+    val liveSelectedAircraft = remember(aircraftList, selectedAircraft) {
+        if (selectedAircraft == null) null
+        else aircraftList.find {
+            it.tailNumber.equals(selectedAircraft.tailNumber, ignoreCase = true) ||
+            it.icao24.equals(selectedAircraft.icao24, ignoreCase = true)
+        } ?: selectedAircraft
+    }
+
+    // Zoom & Pan state: zoom out is bounded strictly to 1.0f (selected range), zoom in up to 5.0f
+    var zoomScale by remember { mutableFloatStateOf(1.0f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+
+    // Map Orientation Mode: REGULAR (North Up), FOLLOW_NORTH (Phone Compass Gyro), FOLLOW_AIRCRAFT (Track Up)
+    var orientationMode by remember { mutableStateOf(MapOrientationMode.REGULAR) }
+    val deviceHeading by rememberDeviceHeading()
+
+    val targetRotationDeg by remember(orientationMode, deviceHeading, liveSelectedAircraft) {
+        derivedStateOf {
+            when (orientationMode) {
+                MapOrientationMode.REGULAR -> 0f
+                MapOrientationMode.FOLLOW_NORTH -> -deviceHeading
+                MapOrientationMode.FOLLOW_AIRCRAFT -> {
+                    val targetHeading = liveSelectedAircraft?.headingDeg
+                        ?: aircraftList.firstOrNull()?.headingDeg
+                        ?: 0f
+                    -targetHeading
+                }
+            }
+        }
+    }
+
+    val animatedRotationDeg by animateFloatAsState(
+        targetValue = targetRotationDeg,
+        animationSpec = tween(durationMillis = 140),
+        label = "MapRotationAngle"
+    )
+
     val textMeasurer = rememberTextMeasurer()
 
     // Smooth Radar Sweep animation (stops when paused to save battery/cycles)
@@ -135,406 +197,683 @@ fun RadarMapView(
         val height = constraints.maxHeight.toFloat()
         val centerX = width / 2f
         val centerY = height / 2f
-        val maxRadiusPx = minOf(centerX, centerY) * 0.88f
+        val maxRadiusPx = minOf(centerX, centerY) * (if (isMaximized) 0.94f else 0.88f)
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(aircraftList, scanRadiusNm) {
-                    detectTapGestures { tapOffset ->
-                        var closest: Aircraft? = null
-                        var minDistancePx = 50f
+                .pointerInput(aircraftList, scanRadiusNm, maxRadiusPx, centerX, centerY, animatedRotationDeg) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var pastTouchSlop = false
+                        val touchSlop = viewConfiguration.touchSlop
 
-                        aircraftList.forEach { ac ->
-                            val (blipX, blipY) = calculateBlipPosition(
-                                centerLat = radarCenter.latitude,
-                                centerLon = radarCenter.longitude,
-                                targetLat = ac.latitude,
-                                targetLon = ac.longitude,
-                                radarCenterX = centerX,
-                                radarCenterY = centerY,
-                                maxRadiusPx = maxRadiusPx,
-                                maxRangeNm = scanRadiusNm
-                            )
-                            val dist = sqrt((tapOffset.x - blipX) * (tapOffset.x - blipX) + (tapOffset.y - blipY) * (tapOffset.y - blipY))
-                            if (dist < minDistancePx) {
-                                minDistancePx = dist
-                                closest = ac
+                        do {
+                            val event = awaitPointerEvent()
+                            val canceled = event.changes.any { it.isConsumed }
+                            if (canceled) break
+
+                            if (event.changes.size > 1) {
+                                // Multi-touch pinch zoom
+                                val zoomChange = event.calculateZoom()
+                                val panChange = event.calculatePan()
+                                val newScale = (zoomScale * zoomChange).coerceIn(1.0f, 5.0f)
+                                zoomScale = newScale
+                                if (newScale <= 1.0f) {
+                                    panOffset = Offset.Zero
+                                } else {
+                                    val maxPan = maxRadiusPx * (newScale - 1f)
+                                    panOffset = Offset(
+                                        x = (panOffset.x + panChange.x).coerceIn(-maxPan, maxPan),
+                                        y = (panOffset.y + panChange.y).coerceIn(-maxPan, maxPan)
+                                    )
+                                }
+                                event.changes.forEach { it.consume() }
+                                pastTouchSlop = true
+                            } else if (event.changes.size == 1) {
+                                val change = event.changes[0]
+                                val dragDistance = (change.position - down.position).getDistance()
+                                if (dragDistance > touchSlop) {
+                                    pastTouchSlop = true
+                                    if (zoomScale > 1.0f) {
+                                        val panChange = change.position - change.previousPosition
+                                        val maxPan = maxRadiusPx * (zoomScale - 1f)
+                                        panOffset = Offset(
+                                            x = (panOffset.x + panChange.x).coerceIn(-maxPan, maxPan),
+                                            y = (panOffset.y + panChange.y).coerceIn(-maxPan, maxPan)
+                                        )
+                                        change.consume()
+                                    }
+                                }
                             }
-                        }
+                        } while (event.changes.any { it.pressed })
 
-                        if (closest != null) {
-                            selectedAircraft = closest
-                            onAircraftSelected(closest!!)
-                        } else {
-                            selectedAircraft = null
+                        if (!pastTouchSlop) {
+                            val tapOffset = down.position
+                            var closest: Aircraft? = null
+                            var minDistancePx = 52f
+
+                            aircraftList.forEach { ac ->
+                                val (baseX, baseY) = calculateBlipPosition(
+                                    centerLat = radarCenter.latitude,
+                                    centerLon = radarCenter.longitude,
+                                    targetLat = ac.latitude,
+                                    targetLon = ac.longitude,
+                                    radarCenterX = centerX,
+                                    radarCenterY = centerY,
+                                    maxRadiusPx = maxRadiusPx,
+                                    maxRangeNm = scanRadiusNm
+                                )
+                                val screenPos = calculateScreenPosition(
+                                    baseX = baseX,
+                                    baseY = baseY,
+                                    centerX = centerX,
+                                    centerY = centerY,
+                                    rotationDeg = animatedRotationDeg,
+                                    zoomScale = zoomScale,
+                                    panOffset = panOffset
+                                )
+                                val dist = hypot((tapOffset.x - screenPos.x).toDouble(), (tapOffset.y - screenPos.y).toDouble()).toFloat()
+                                if (dist < minDistancePx) {
+                                    minDistancePx = dist
+                                    closest = ac
+                                }
+                            }
+
+                            if (closest != null) {
+                                onAircraftSelected(closest!!)
+                            } else {
+                                onDeselectAircraft()
+                            }
                         }
                     }
                 }
         ) {
-            // 1. Draw Background Layer (Radar Grid / Satellite Nocturnal Earth / Terrain Sectional)
-            when (mapLayerType) {
-                MapLayerType.RADAR -> {
-                    drawRadarGrid(
-                        centerX = centerX,
-                        centerY = centerY,
-                        maxRadiusPx = maxRadiusPx,
-                        maxRangeNm = scanRadiusNm,
-                        textMeasurer = textMeasurer
-                    )
-                    if (!isPaused) {
-                        drawRadarSweep(
+            withTransform({
+                translate(panOffset.x, panOffset.y)
+                scale(zoomScale, zoomScale, pivot = Offset(centerX, centerY))
+                rotate(animatedRotationDeg, pivot = Offset(centerX, centerY))
+            }) {
+                // 1. Draw Background Layer (Radar Grid / Satellite Nocturnal Earth / Terrain Sectional)
+                when (mapLayerType) {
+                    MapLayerType.RADAR -> {
+                        drawRadarGrid(
                             centerX = centerX,
                             centerY = centerY,
                             maxRadiusPx = maxRadiusPx,
-                            currentAngle = sweepAngle
+                            maxRangeNm = scanRadiusNm,
+                            textMeasurer = textMeasurer,
+                            mapRotationDeg = animatedRotationDeg
+                        )
+                        if (!isPaused) {
+                            drawRadarSweep(
+                                centerX = centerX,
+                                centerY = centerY,
+                                maxRadiusPx = maxRadiusPx,
+                                currentAngle = sweepAngle
+                            )
+                        }
+                    }
+                    MapLayerType.SATELLITE -> {
+                        drawSatelliteLayer(
+                            centerX = centerX,
+                            centerY = centerY,
+                            maxRadiusPx = maxRadiusPx,
+                            maxRangeNm = scanRadiusNm,
+                            textMeasurer = textMeasurer
+                        )
+                    }
+                    MapLayerType.TERRAIN -> {
+                        drawTerrainLayer(
+                            centerX = centerX,
+                            centerY = centerY,
+                            maxRadiusPx = maxRadiusPx,
+                            maxRangeNm = scanRadiusNm,
+                            textMeasurer = textMeasurer
                         )
                     }
                 }
-                MapLayerType.SATELLITE -> {
-                    drawSatelliteLayer(
+
+                // 2. Draw Storm Weather Radar Overlay (Doppler Reflectivity & Storm Proximity Vectors)
+                if (isStormRadarEnabled && stormCells.isNotEmpty()) {
+                    drawStormRadarOverlay(
                         centerX = centerX,
                         centerY = centerY,
                         maxRadiusPx = maxRadiusPx,
-                        maxRangeNm = scanRadiusNm,
+                        scanRadiusNm = scanRadiusNm,
+                        radarCenter = radarCenter,
+                        stormCells = stormCells,
                         textMeasurer = textMeasurer
                     )
-                }
-                MapLayerType.TERRAIN -> {
-                    drawTerrainLayer(
+
+                    drawStormProximityVectors(
+                        aircraftList = aircraftList,
+                        stormCells = stormCells,
+                        radarCenter = radarCenter,
                         centerX = centerX,
                         centerY = centerY,
                         maxRadiusPx = maxRadiusPx,
-                        maxRangeNm = scanRadiusNm,
+                        scanRadiusNm = scanRadiusNm,
+                        selectedAircraft = liveSelectedAircraft,
                         textMeasurer = textMeasurer
                     )
                 }
-            }
 
-            // 2. Draw Storm Weather Radar Overlay (Doppler Reflectivity & Storm Proximity Vectors)
-            if (isStormRadarEnabled && stormCells.isNotEmpty()) {
-                drawStormRadarOverlay(
-                    centerX = centerX,
-                    centerY = centerY,
-                    maxRadiusPx = maxRadiusPx,
-                    scanRadiusNm = scanRadiusNm,
-                    radarCenter = radarCenter,
-                    stormCells = stormCells,
-                    textMeasurer = textMeasurer
-                )
+                // 3. Draw Aircraft Blips, Heading Vectors, and Identification Tags
+                aircraftList.forEach { ac ->
+                    val (blipX, blipY) = calculateBlipPosition(
+                        centerLat = radarCenter.latitude,
+                        centerLon = radarCenter.longitude,
+                        targetLat = ac.latitude,
+                        targetLon = ac.longitude,
+                        radarCenterX = centerX,
+                        radarCenterY = centerY,
+                        maxRadiusPx = maxRadiusPx,
+                        maxRangeNm = scanRadiusNm
+                    )
 
-                drawStormProximityVectors(
-                    aircraftList = aircraftList,
-                    stormCells = stormCells,
-                    radarCenter = radarCenter,
-                    centerX = centerX,
-                    centerY = centerY,
-                    maxRadiusPx = maxRadiusPx,
-                    scanRadiusNm = scanRadiusNm,
-                    selectedAircraft = selectedAircraft,
-                    textMeasurer = textMeasurer
-                )
-            }
+                    val isSelected = selectedAircraft?.icao24 == ac.icao24
 
-            // 3. Draw Aircraft Blips, Heading Vectors, and Identification Tags
-            aircraftList.forEach { ac ->
-                val (blipX, blipY) = calculateBlipPosition(
-                    centerLat = radarCenter.latitude,
-                    centerLon = radarCenter.longitude,
-                    targetLat = ac.latitude,
-                    targetLon = ac.longitude,
-                    radarCenterX = centerX,
-                    radarCenterY = centerY,
-                    maxRadiusPx = maxRadiusPx,
-                    maxRangeNm = scanRadiusNm
-                )
-
-                val isSelected = selectedAircraft?.icao24 == ac.icao24
-
-                drawAircraftTarget(
-                    x = blipX,
-                    y = blipY,
-                    aircraft = ac,
-                    isSelected = isSelected,
-                    mapLayerType = mapLayerType,
-                    textMeasurer = textMeasurer
-                )
+                    drawAircraftTarget(
+                        x = blipX,
+                        y = blipY,
+                        aircraft = ac,
+                        isSelected = isSelected,
+                        mapLayerType = mapLayerType,
+                        textMeasurer = textMeasurer,
+                        mapRotationDeg = animatedRotationDeg
+                    )
+                }
             }
         }
 
-        // Top Status HUD with Location Selector, GPS Snap, Storm Toggle, and Map Layer Switcher
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-                .align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left Controls: Airport / GPS Selector & Quick GPS Snap
+        // Top Status HUD & Map Controls (Hidden when isMaximized to provide pure full-scope view)
+        if (!isMaximized) {
+            // 1. Top Status HUD with Location Selector, GPS Snap, Storm Toggle, and Map Layer Switcher
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Airport / Center & Radius Info Tag (Clickable)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(OledSurface)
-                        .border(1.dp, if (radarCenter.isGps) RadarGreen else RadarCyan, RoundedCornerShape(8.dp))
-                        .clickable { onOpenLocationPicker() }
-                        .padding(horizontal = 8.dp, vertical = 5.dp)
-                        .testTag("radar_hud_location_btn")
+                // Left Controls: Airport / GPS Selector & Quick GPS Snap
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (radarCenter.isGps) Icons.Default.LocationOn else Icons.Default.AirplanemodeActive,
-                            contentDescription = "Center Location",
-                            tint = if (radarCenter.isGps) RadarGreen else RadarCyan,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${radarCenter.id.uppercase()} · ${scanRadiusNm.toInt()}NM ▾",
-                            color = if (radarCenter.isGps) RadarGreen else RadarCyan,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
+                    // Airport / Center & Radius Info Tag (Clickable)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(OledSurface)
+                            .border(1.dp, if (radarCenter.isGps) RadarGreen else RadarCyan, RoundedCornerShape(8.dp))
+                            .clickable { onOpenLocationPicker() }
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                            .testTag("radar_hud_location_btn")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (radarCenter.isGps) Icons.Default.LocationOn else Icons.Default.AirplanemodeActive,
+                                contentDescription = "Center Location",
+                                tint = if (radarCenter.isGps) RadarGreen else RadarCyan,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${radarCenter.id.uppercase()} · ${scanRadiusNm.toInt()}NM ▾",
+                                color = if (radarCenter.isGps) RadarGreen else RadarCyan,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Quick GPS Snap Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (radarCenter.isGps) Color(0xFF00381B) else OledSurface)
+                            .border(1.dp, RadarGreen, RoundedCornerShape(8.dp))
+                            .clickable { onSnapGps() }
+                            .padding(horizontal = 6.dp, vertical = 5.dp)
+                            .testTag("radar_hud_gps_snap")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "Snap to GPS",
+                                tint = RadarGreen,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = if (radarCenter.isGps) "GPS" else "⌖ GPS",
+                                color = RadarGreen,
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
-                // Quick GPS Snap Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (radarCenter.isGps) Color(0xFF00381B) else OledSurface)
-                        .border(1.dp, RadarGreen, RoundedCornerShape(8.dp))
-                        .clickable { onSnapGps() }
-                        .padding(horizontal = 6.dp, vertical = 5.dp)
-                        .testTag("radar_hud_gps_snap")
+                // Right Controls: Storm Radar Toggle + Map Layer Switcher
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.LocationOn,
-                            contentDescription = "Snap to GPS",
-                            tint = RadarGreen,
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
+                    // Storm Radar Toggle Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isStormRadarEnabled) Color(0xFF330030) else OledSurface)
+                            .border(1.dp, if (isStormRadarEnabled) Color(0xFFD500F9) else OledCardBorder, RoundedCornerShape(8.dp))
+                            .clickable { onToggleStormRadar() }
+                            .padding(horizontal = 7.dp, vertical = 5.dp)
+                            .testTag("radar_hud_storm_toggle")
+                    ) {
                         Text(
-                            text = if (radarCenter.isGps) "GPS" else "⌖ GPS",
-                            color = RadarGreen,
+                            text = if (isStormRadarEnabled) "⛈ WX:ON" else "⛈ WX:OFF",
+                            color = if (isStormRadarEnabled) Color(0xFFEA80FC) else AvionicsTextDim,
                             fontSize = 9.5.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
                         )
                     }
+
+                    // Map Layer Switcher Pill: [RADAR | SATELLITE | TERRAIN]
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(OledSurface)
+                            .border(1.dp, OledCardBorder, RoundedCornerShape(20.dp))
+                            .padding(2.dp)
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            MapLayerType.values().forEach { layer ->
+                                val isSelected = layer == mapLayerType
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(
+                                            if (isSelected) {
+                                                when (layer) {
+                                                    MapLayerType.RADAR -> Color(0xFF00381B)
+                                                    MapLayerType.SATELLITE -> Color(0xFF003544)
+                                                    MapLayerType.TERRAIN -> Color(0xFF332200)
+                                                }
+                                            } else Color.Transparent
+                                        )
+                                        .clickable { onMapLayerChanged(layer) }
+                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        .testTag("layer_${layer.name.lowercase()}")
+                                ) {
+                                    Text(
+                                        text = layer.displayName,
+                                        color = if (isSelected) {
+                                            when (layer) {
+                                                MapLayerType.RADAR -> RadarGreen
+                                                MapLayerType.SATELLITE -> RadarCyan
+                                                MapLayerType.TERRAIN -> RadarAmber
+                                            }
+                                        } else AvionicsTextDim,
+                                        fontSize = 8.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // Right Controls: Storm Radar Toggle + Map Layer Switcher
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            // 2. Map Orientation Mode Toggle (Top-Left of Map)
+            // One button with three options: REGULAR (North-Up) -> FOLLOW NORTH (Compass/GPS) -> FOLLOW AIRCRAFT (Track-Up)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 10.dp, top = 50.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(OledSurface.copy(alpha = 0.94f))
+                    .border(
+                        width = 1.2.dp,
+                        color = when (orientationMode) {
+                            MapOrientationMode.REGULAR -> OledCardBorder
+                            MapOrientationMode.FOLLOW_NORTH -> RadarCyan
+                            MapOrientationMode.FOLLOW_AIRCRAFT -> RadarAmber
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable {
+                        orientationMode = when (orientationMode) {
+                            MapOrientationMode.REGULAR -> MapOrientationMode.FOLLOW_NORTH
+                            MapOrientationMode.FOLLOW_NORTH -> MapOrientationMode.FOLLOW_AIRCRAFT
+                            MapOrientationMode.FOLLOW_AIRCRAFT -> MapOrientationMode.REGULAR
+                        }
+                    }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .testTag("btn_map_orientation_toggle")
             ) {
-                // Storm Radar Toggle Button
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = when (orientationMode) {
+                            MapOrientationMode.REGULAR -> Icons.Default.Explore
+                            MapOrientationMode.FOLLOW_NORTH -> Icons.Default.Navigation
+                            MapOrientationMode.FOLLOW_AIRCRAFT -> Icons.Default.AirplanemodeActive
+                        },
+                        contentDescription = orientationMode.title,
+                        tint = when (orientationMode) {
+                            MapOrientationMode.REGULAR -> RadarGreen
+                            MapOrientationMode.FOLLOW_NORTH -> RadarCyan
+                            MapOrientationMode.FOLLOW_AIRCRAFT -> RadarAmber
+                        },
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Column {
+                        Text(
+                            text = when (orientationMode) {
+                                MapOrientationMode.REGULAR -> "REGULAR (N-UP)"
+                                MapOrientationMode.FOLLOW_NORTH -> "FOLLOW NORTH"
+                                MapOrientationMode.FOLLOW_AIRCRAFT -> "FOLLOW AIRCRAFT"
+                            },
+                            color = when (orientationMode) {
+                                MapOrientationMode.REGULAR -> AvionicsTextPrimary
+                                MapOrientationMode.FOLLOW_NORTH -> RadarCyan
+                                MapOrientationMode.FOLLOW_AIRCRAFT -> RadarAmber
+                            },
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = when (orientationMode) {
+                                MapOrientationMode.REGULAR -> "000° FIXED"
+                                MapOrientationMode.FOLLOW_NORTH -> "${deviceHeading.toInt()}° COMPASS"
+                                MapOrientationMode.FOLLOW_AIRCRAFT -> {
+                                    val hdg = liveSelectedAircraft?.headingDeg ?: 0f
+                                    "${hdg.toInt()}° TRACK"
+                                }
+                            },
+                            color = AvionicsTextDim,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // 3. Floating Zoom In / Out / Reset Controls (Right Edge of Map)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Zoom In (+)
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isStormRadarEnabled) Color(0xFF330030) else OledSurface)
-                        .border(1.dp, if (isStormRadarEnabled) Color(0xFFD500F9) else OledCardBorder, RoundedCornerShape(8.dp))
-                        .clickable { onToggleStormRadar() }
-                        .padding(horizontal = 7.dp, vertical = 5.dp)
-                        .testTag("radar_hud_storm_toggle")
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(OledSurface.copy(alpha = 0.92f))
+                        .border(1.2.dp, if (zoomScale < 5.0f) RadarGreen else OledCardBorder, CircleShape)
+                        .clickable(enabled = zoomScale < 5.0f) {
+                            zoomScale = (zoomScale + 0.5f).coerceAtMost(5.0f)
+                        }
+                        .testTag("btn_radar_zoom_in"),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (isStormRadarEnabled) "⛈ WX:ON" else "⛈ WX:OFF",
-                        color = if (isStormRadarEnabled) Color(0xFFEA80FC) else AvionicsTextDim,
-                        fontSize = 9.5.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Zoom In",
+                        tint = if (zoomScale < 5.0f) RadarGreen else AvionicsTextDim,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                // Map Layer Switcher Pill: [RADAR | SATELLITE | TERRAIN]
+                // Zoom Level Reset Pill (Shows "1.5x", tapping resets to 1.0x & center)
+                if (zoomScale > 1.0f || panOffset != Offset.Zero) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF00381B))
+                            .border(1.dp, RadarGreen, RoundedCornerShape(12.dp))
+                            .clickable {
+                                zoomScale = 1.0f
+                                panOffset = Offset.Zero
+                            }
+                            .padding(horizontal = 7.dp, vertical = 4.dp)
+                            .testTag("btn_radar_zoom_reset")
+                    ) {
+                        Text(
+                            text = String.format(Locale.US, "%.1fx", zoomScale),
+                            color = RadarGreen,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Zoom Out (-) strictly bounded to 1.0f (selected range, not a global zoom)
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(OledSurface)
-                        .border(1.dp, OledCardBorder, RoundedCornerShape(20.dp))
-                        .padding(2.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(OledSurface.copy(alpha = 0.92f))
+                        .border(1.2.dp, if (zoomScale > 1.0f) RadarGreen else OledCardBorder, CircleShape)
+                        .clickable(enabled = zoomScale > 1.0f) {
+                            val newScale = (zoomScale - 0.5f).coerceAtLeast(1.0f)
+                            zoomScale = newScale
+                            if (newScale <= 1.0f) panOffset = Offset.Zero
+                        }
+                        .testTag("btn_radar_zoom_out"),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        MapLayerType.values().forEach { layer ->
-                            val isSelected = layer == mapLayerType
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        if (isSelected) {
-                                            when (layer) {
-                                                MapLayerType.RADAR -> Color(0xFF00381B)
-                                                MapLayerType.SATELLITE -> Color(0xFF003544)
-                                                MapLayerType.TERRAIN -> Color(0xFF332200)
-                                            }
-                                        } else Color.Transparent
-                                    )
-                                    .clickable { onMapLayerChanged(layer) }
-                                    .padding(horizontal = 6.dp, vertical = 3.dp)
-                                    .testTag("layer_${layer.name.lowercase()}")
-                            ) {
-                                Text(
-                                    text = layer.displayName,
-                                    color = if (isSelected) {
-                                        when (layer) {
-                                            MapLayerType.RADAR -> RadarGreen
-                                            MapLayerType.SATELLITE -> RadarCyan
-                                            MapLayerType.TERRAIN -> RadarAmber
-                                        }
-                                    } else AvionicsTextDim,
-                                    fontSize = 8.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                    Icon(
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Zoom Out",
+                        tint = if (zoomScale > 1.0f) RadarGreen else AvionicsTextDim,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // 4. NEXRAD Doppler Weather Reflectivity Scale Legend
+            if (isStormRadarEnabled) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 12.dp, bottom = if (liveSelectedAircraft != null) 230.dp else 12.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xD0000000))
+                        .border(1.dp, OledCardBorder, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 7.dp, vertical = 4.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "NEXRAD DOPPLER dBZ",
+                            color = AvionicsTextDim,
+                            fontSize = 7.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            DbzBlock(color = Color(0xFF00E676), label = "20-35")
+                            DbzBlock(color = Color(0xFFFFD600), label = "35-45")
+                            DbzBlock(color = Color(0xFFFF1744), label = "45-55")
+                            DbzBlock(color = Color(0xFFD500F9), label = "55+")
                         }
                     }
                 }
             }
         }
 
-        // NEXRAD Doppler Weather Reflectivity Scale Legend
-        if (isStormRadarEnabled) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 12.dp, bottom = if (selectedAircraft != null) 200.dp else 12.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xD0000000))
-                    .border(1.dp, OledCardBorder, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 7.dp, vertical = 4.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "NEXRAD DOPPLER dBZ",
-                        color = AvionicsTextDim,
-                        fontSize = 7.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        DbzBlock(color = Color(0xFF00E676), label = "20-35")
-                        DbzBlock(color = Color(0xFFFFD600), label = "35-45")
-                        DbzBlock(color = Color(0xFFFF1744), label = "45-55")
-                        DbzBlock(color = Color(0xFFD500F9), label = "55+")
-                    }
-                }
-            }
-        }
-
-        // Target Inspection Bottom Card (when an aircraft is tapped)
-        selectedAircraft?.let { target ->
+        // Target Inspection Bottom Card (continually streams live data for selected plane, hidden when maximized)
+        if (!isMaximized) {
+            liveSelectedAircraft?.let { target ->
             val typeInfo = AircraftRegistry.getAircraftType(target.aircraftTypeCode)
+            val isHeli = target.isHelicopter || typeInfo.isHelicopter
+            val pubReg = target.publicRegistry
+
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp)
+                    .padding(10.dp)
                     .align(Alignment.BottomCenter)
                     .clip(RoundedCornerShape(14.dp))
-                    .border(1.5.dp, if (target.isWatchlisted) RadarAmber else RadarGreen, RoundedCornerShape(14.dp)),
+                    .border(1.5.dp, if (target.isWatchlisted) RadarAmber else if (isHeli) RadarCyan else RadarGreen, RoundedCornerShape(14.dp)),
                 colors = CardDefaults.cardColors(containerColor = OledBlack)
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
+                    // Top header: Icon, Identification, Watchlist/Live stream badge, Distance, Close
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isHeli) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_helicopter),
+                                    contentDescription = "Helicopter",
+                                    tint = RadarCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.AirplanemodeActive,
+                                    contentDescription = "Airplane",
+                                    tint = RadarGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = target.displayId,
+                                color = AvionicsTextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF2E0000))
+                                    .border(1.dp, Color(0xFFFF1744), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
                                 Text(
-                                    text = target.displayId,
-                                    color = AvionicsTextPrimary,
-                                    fontSize = 15.sp,
+                                    text = "🔴 LIVE",
+                                    color = Color(0xFFFF5252),
+                                    fontSize = 8.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
-                                if (target.isWatchlisted) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFF331400))
-                                            .border(1.dp, RadarAmber, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "🚨 WATCHLIST",
-                                            color = RadarAmber,
-                                            fontSize = 8.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                            }
+                            if (target.isWatchlisted) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF331400))
+                                        .border(1.dp, RadarAmber, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "🚨 WATCH",
+                                        color = RadarAmber,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
-                            Text(
-                                text = target.registeredOperator,
-                                color = RadarCyan,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
                         }
 
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = String.format(Locale.US, "%.1f NM", target.distanceNm),
+                                color = RadarGreen,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(
+                                onClick = onDeselectAircraft,
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close Target Panel",
+                                    tint = AvionicsTextDim,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Operator and Registered Owner info
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = pubReg?.registeredOwner ?: target.registeredOperator,
+                        color = RadarCyan,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1
+                    )
+                    pubReg?.registeredParty?.let { rep ->
                         Text(
-                            text = String.format(Locale.US, "%.1f NM", target.distanceNm),
-                            color = RadarGreen,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            text = "Representative: $rep (${pubReg.registryStateOrProvince ?: "FAA"})",
+                            color = AvionicsTextDim,
+                            fontSize = 9.5.sp,
+                            maxLines = 1
                         )
                     }
 
-                    // Storm cell proximity telemetry warning if active
+                    // Storm cell proximity warning banner
                     if (isStormRadarEnabled && target.nearestStormName != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (target.isInsideStorm) Color(0xFF3B0B0B) else Color(0xFF261D00))
                                 .border(1.dp, if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = if (target.isInsideStorm) "⚠️ IN STORM CELL: " else "⚡ STORM PROX: ",
-                                        color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Text(
-                                        text = target.nearestStormName ?: "",
-                                        color = AvionicsTextPrimary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
+                                Text(
+                                    text = if (target.isInsideStorm) "⚠️ IN STORM CELL: ${target.nearestStormName}" else "⚡ PROX: ${target.nearestStormName}",
+                                    color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
                                 Text(
                                     text = if (target.isInsideStorm) "HAIL CORE" else "${String.format(Locale.US, "%.1f", target.nearestStormDistanceNm ?: 0.0)} NM (${target.nearestStormDbz} dBZ)",
                                     color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
-                                    fontSize = 10.sp,
+                                    fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
@@ -542,51 +881,69 @@ fun RadarMapView(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
+                    // Live Telemetry Grid (continually updates with ADS-B scans)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("ALTITUDE", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            Text("ALTITUDE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                             Text(target.formattedAltitude, color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text("${target.altitudeFt} ft", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
                         }
                         Column {
-                            Text("GROUND SPEED", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            Text("GROUND SPEED", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                             Text("${target.velocityKts} kts", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text("${(target.velocityKts * 1.15).toInt()} mph", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
                         }
                         Column {
-                            Text("TRACK", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            Text("V/S RATE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                            val (vsText, vsColor) = when {
+                                target.verticalRateFpm > 100 -> "▲ +${target.verticalRateFpm}" to RadarGreen
+                                target.verticalRateFpm < -100 -> "▼ ${target.verticalRateFpm}" to RadarAmber
+                                else -> "▶ LEVEL" to AvionicsTextDim
+                            }
+                            Text(vsText, color = vsColor, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text("fpm", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                        }
+                        Column {
+                            Text("TRACK", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                             Text("${target.headingDeg.toInt()}°", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("SQUAWK", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
-                            Text(target.squawk, color = RadarCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Text(target.squawk, color = RadarCyan, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "POS: ${String.format(Locale.US, "%.4f°N, %.4f°W", target.latitude, -target.longitude)} · ADS-B 1090MHz LIVE",
+                        color = AvionicsTextDim,
+                        fontSize = 8.5.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { onViewTypeDetails(typeInfo) },
+                            onClick = { onViewTypeDetails(typeInfo, target) },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = OledSurface,
-                                contentColor = RadarCyan
+                                contentColor = if (isHeli) RadarCyan else RadarGreen
                             ),
                             shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, RadarCyan)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isHeli) RadarCyan else RadarGreen)
                         ) {
-                            Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "✈ ${target.aircraftTypeCode} PHOTO/SPECS",
-                                fontSize = 10.5.sp,
+                                text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} PHOTO/OWNER",
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -605,18 +962,54 @@ fun RadarMapView(
                             Icon(
                                 imageVector = if (target.isWatchlisted) Icons.Default.Warning else Icons.Default.NotificationsActive,
                                 contentDescription = null,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = if (target.isWatchlisted) "UNWATCH" else "WATCH",
-                                fontSize = 10.5.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
                     }
                 }
+            }
+        }
+        }
+
+        // Maximize Screen / Return Button in Lower-Right
+        // In normal view: allows user to maximize radar screen to fill entire phone screen with no controls
+        // In maximized view: allows user to restore/return to normal view
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(
+                    end = 12.dp,
+                    bottom = if (isMaximized) 18.dp else if (liveSelectedAircraft != null) 230.dp else 12.dp
+                )
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isMaximized) Color(0xFF00381B) else OledSurface.copy(alpha = 0.94f))
+                .border(1.2.dp, if (isMaximized) RadarGreen else RadarCyan, RoundedCornerShape(10.dp))
+                .clickable { onToggleMaximize() }
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .testTag("btn_radar_fullscreen_toggle")
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isMaximized) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                    contentDescription = if (isMaximized) "Return to Normal View" else "Maximize Radar Screen",
+                    tint = if (isMaximized) RadarGreen else RadarCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = if (isMaximized) "RESTORE" else "MAXIMIZE",
+                    color = if (isMaximized) RadarGreen else RadarCyan,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -628,7 +1021,8 @@ private fun DrawScope.drawRadarGrid(
     centerY: Float,
     maxRadiusPx: Float,
     maxRangeNm: Double,
-    textMeasurer: TextMeasurer
+    textMeasurer: TextMeasurer,
+    mapRotationDeg: Float = 0f
 ) {
     val ringRatios = listOf(0.25f, 0.50f, 0.75f, 1.0f)
     val ringColor = Color(0x3300E676)
@@ -656,10 +1050,20 @@ private fun DrawScope.drawRadarGrid(
                 fontWeight = FontWeight.Bold
             )
         )
-        drawText(
-            textLayoutResult = textLayoutResult,
-            topLeft = Offset(centerX + 6.dp.toPx(), centerY - radiusPx + 2.dp.toPx())
-        )
+        val textPos = Offset(centerX + 6.dp.toPx(), centerY - radiusPx + 2.dp.toPx())
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = textPos) {
+                drawText(
+                    textLayoutResult = textLayoutResult,
+                    topLeft = textPos
+                )
+            }
+        } else {
+            drawText(
+                textLayoutResult = textLayoutResult,
+                topLeft = textPos
+            )
+        }
     }
 
     val cardinals = listOf(
@@ -674,7 +1078,13 @@ private fun DrawScope.drawRadarGrid(
             text = label,
             style = TextStyle(color = RadarGreen, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
         )
-        drawText(result, topLeft = pos)
+        if (mapRotationDeg != 0f) {
+            rotate(degrees = -mapRotationDeg, pivot = pos) {
+                drawText(result, topLeft = pos)
+            }
+        } else {
+            drawText(result, topLeft = pos)
+        }
     }
 }
 
@@ -833,33 +1243,85 @@ private fun DrawScope.drawAircraftTarget(
     aircraft: Aircraft,
     isSelected: Boolean,
     mapLayerType: MapLayerType,
-    textMeasurer: TextMeasurer
+    textMeasurer: TextMeasurer,
+    mapRotationDeg: Float = 0f
 ) {
     val blipColor = when {
         aircraft.isWatchlisted -> RadarAmber
         isSelected -> RadarCyan
+        aircraft.isHelicopter -> Color(0xFF00E5FF) // High-visibility Cyan for Helicopter
         mapLayerType == MapLayerType.SATELLITE -> Color(0xFF00F0FF)
         mapLayerType == MapLayerType.TERRAIN -> Color(0xFFE0E0E0)
         else -> RadarGreen
     }
 
-    rotate(degrees = aircraft.headingDeg, pivot = Offset(x, y)) {
-        val path = Path().apply {
-            moveTo(x, y - 10.dp.toPx())
-            lineTo(x + 8.dp.toPx(), y + 8.dp.toPx())
-            lineTo(x, y + 4.dp.toPx())
-            lineTo(x - 8.dp.toPx(), y + 8.dp.toPx())
-            close()
-        }
-        drawPath(path = path, color = blipColor)
+    if (aircraft.isHelicopter) {
+        // ROTORCRAFT HELICOPTER BLIP: Fuselage oval + Tail boom + Tail rotor + Main Rotor Crossbar
+        rotate(degrees = aircraft.headingDeg, pivot = Offset(x, y)) {
+            // Fuselage oval
+            drawOval(
+                color = blipColor,
+                topLeft = Offset(x - 3.5.dp.toPx(), y - 7.dp.toPx()),
+                size = androidx.compose.ui.geometry.Size(7.dp.toPx(), 13.dp.toPx())
+            )
+            // Tail boom extending rearward
+            drawLine(
+                color = blipColor,
+                start = Offset(x, y + 6.dp.toPx()),
+                end = Offset(x, y + 14.dp.toPx()),
+                strokeWidth = 2.dp.toPx()
+            )
+            // Tail rotor cross
+            drawLine(
+                color = blipColor,
+                start = Offset(x - 3.dp.toPx(), y + 14.dp.toPx()),
+                end = Offset(x + 3.dp.toPx(), y + 14.dp.toPx()),
+                strokeWidth = 1.5.dp.toPx()
+            )
+            // Main Rotor Disc Blades (wide crossbar perpendicular to fuselage)
+            drawLine(
+                color = blipColor,
+                start = Offset(x - 12.dp.toPx(), y - 1.dp.toPx()),
+                end = Offset(x + 12.dp.toPx(), y - 1.dp.toPx()),
+                strokeWidth = 2.2.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            // Rotor hub center
+            drawCircle(
+                color = Color.Black,
+                radius = 1.8.dp.toPx(),
+                center = Offset(x, y - 1.dp.toPx())
+            )
 
-        val vectorLen = (aircraft.velocityKts / 20f).coerceIn(12f, 35f)
-        drawLine(
-            color = blipColor.copy(alpha = 0.7f),
-            start = Offset(x, y - 10.dp.toPx()),
-            end = Offset(x, y - 10.dp.toPx() - vectorLen),
-            strokeWidth = 1.5.dp.toPx()
-        )
+            // Forward speed vector
+            val vectorLen = (aircraft.velocityKts / 20f).coerceIn(10f, 30f)
+            drawLine(
+                color = blipColor.copy(alpha = 0.8f),
+                start = Offset(x, y - 7.dp.toPx()),
+                end = Offset(x, y - 7.dp.toPx() - vectorLen),
+                strokeWidth = 1.5.dp.toPx()
+            )
+        }
+    } else {
+        // FIXED-WING AIRPLANE BLIP: Directional swept delta arrow
+        rotate(degrees = aircraft.headingDeg, pivot = Offset(x, y)) {
+            val path = Path().apply {
+                moveTo(x, y - 10.dp.toPx())
+                lineTo(x + 8.dp.toPx(), y + 8.dp.toPx())
+                lineTo(x, y + 4.dp.toPx())
+                lineTo(x - 8.dp.toPx(), y + 8.dp.toPx())
+                close()
+            }
+            drawPath(path = path, color = blipColor)
+
+            val vectorLen = (aircraft.velocityKts / 20f).coerceIn(12f, 35f)
+            drawLine(
+                color = blipColor.copy(alpha = 0.7f),
+                start = Offset(x, y - 10.dp.toPx()),
+                end = Offset(x, y - 10.dp.toPx() - vectorLen),
+                strokeWidth = 1.5.dp.toPx()
+            )
+        }
     }
 
     if (isSelected || aircraft.isWatchlisted) {
@@ -871,7 +1333,8 @@ private fun DrawScope.drawAircraftTarget(
         )
     }
 
-    val label = "${aircraft.callsign.ifBlank { aircraft.tailNumber }}\n${aircraft.formattedAltitude}"
+    val glyph = if (aircraft.isHelicopter) "🚁" else "✈"
+    val label = "$glyph ${aircraft.callsign.ifBlank { aircraft.tailNumber }}\n${aircraft.formattedAltitude}"
     val result = textMeasurer.measure(
         text = label,
         style = TextStyle(
@@ -881,7 +1344,13 @@ private fun DrawScope.drawAircraftTarget(
             fontWeight = FontWeight.Bold
         )
     )
-    drawText(result, topLeft = Offset(x + 12.dp.toPx(), y - 12.dp.toPx()))
+    if (mapRotationDeg != 0f) {
+        rotate(degrees = -mapRotationDeg, pivot = Offset(x, y)) {
+            drawText(result, topLeft = Offset(x + 12.dp.toPx(), y - 12.dp.toPx()))
+        }
+    } else {
+        drawText(result, topLeft = Offset(x + 12.dp.toPx(), y - 12.dp.toPx()))
+    }
 }
 
 private fun calculateBlipPosition(
@@ -917,6 +1386,27 @@ private fun calculateBlipPosition(
     val posY = radarCenterY - blipRadiusPx * cos(bearingRad).toFloat()
 
     return Pair(posX, posY)
+}
+
+private fun calculateScreenPosition(
+    baseX: Float,
+    baseY: Float,
+    centerX: Float,
+    centerY: Float,
+    rotationDeg: Float,
+    zoomScale: Float,
+    panOffset: Offset
+): Offset {
+    val rad = Math.toRadians(rotationDeg.toDouble())
+    val cosR = cos(rad)
+    val sinR = sin(rad)
+    val dx = baseX - centerX
+    val dy = baseY - centerY
+    val rotX = (dx * cosR - dy * sinR).toFloat()
+    val rotY = (dx * sinR + dy * cosR).toFloat()
+    val screenX = centerX + rotX * zoomScale + panOffset.x
+    val screenY = centerY + rotY * zoomScale + panOffset.y
+    return Offset(screenX, screenY)
 }
 
 private fun DrawScope.drawStormRadarOverlay(

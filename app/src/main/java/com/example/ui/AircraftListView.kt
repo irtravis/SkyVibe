@@ -62,8 +62,10 @@ import com.example.ui.theme.OledBlack
 import com.example.ui.theme.OledCardBorder
 import com.example.ui.theme.OledSurface
 import com.example.ui.theme.RadarAmber
+import com.example.R
 import com.example.ui.theme.RadarCyan
 import com.example.ui.theme.RadarGreen
+import androidx.compose.ui.res.painterResource
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,7 +76,7 @@ fun AircraftListView(
     aircraftList: List<Aircraft>,
     telemetryFeed: List<String>,
     isPaused: Boolean,
-    onViewTypeDetails: (AircraftTypeInfo) -> Unit,
+    onViewTypeDetails: (AircraftTypeInfo, Aircraft?) -> Unit,
     onToggleWatchlist: (String) -> Unit,
     onAircraftSelected: (Aircraft) -> Unit
 ) {
@@ -289,23 +291,44 @@ fun AircraftListView(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onAircraftSelected(aircraft) }
+                            .clickable {
+                                onAircraftSelected(aircraft)
+                                onViewTypeDetails(typeInfo, aircraft)
+                            }
                             .testTag("aircraft_card_${aircraft.tailNumber}"),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = OledSurface),
                         border = androidx.compose.foundation.BorderStroke(
                             1.dp,
-                            if (aircraft.isWatchlisted) RadarAmber else OledCardBorder
+                            if (aircraft.isWatchlisted) RadarAmber else if (aircraft.isHelicopter) Color(0xFF0D3B42) else OledCardBorder
                         )
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            // Top Row: Callsign, Tail #, Watchlist Tag & Distance
+                            // Top Row: Callsign, Tail #, Helicopter vs Plane Icon, Watchlist Tag & Distance
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Differentiated Craft Icon: Helicopter vs Airplane
+                                    if (aircraft.isHelicopter) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_helicopter),
+                                            contentDescription = "Helicopter",
+                                            tint = RadarCyan,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.AirplanemodeActive,
+                                            contentDescription = "Airplane",
+                                            tint = RadarGreen,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+
                                     Text(
                                         text = aircraft.callsign.ifBlank { aircraft.tailNumber },
                                         color = AvionicsTextPrimary,
@@ -316,7 +339,7 @@ fun AircraftListView(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "• ${aircraft.tailNumber}",
-                                        color = RadarGreen,
+                                        color = if (aircraft.isHelicopter) RadarCyan else RadarGreen,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.Monospace
@@ -351,27 +374,63 @@ fun AircraftListView(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                            // Registered Company / Operator lookup
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "🏢 ${aircraft.registeredOperator}",
-                                    color = AvionicsTextSecondary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                            // Public Registered Owner & Representative / Agent Display
+                            val regOwner = aircraft.publicRegistry?.registeredOwner ?: aircraft.registeredOperator
+                            val regParty = aircraft.publicRegistry?.registeredParty
+                            val regState = aircraft.publicRegistry?.registryStateOrProvince
 
-                                Text(
-                                    text = "HEX: ${aircraft.icao24.uppercase()}",
-                                    color = AvionicsTextDim,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "🏢 $regOwner",
+                                        color = AvionicsTextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+
+                                    Spacer(modifier = Modifier.width(4.dp))
+
+                                    Text(
+                                        text = "HEX: ${aircraft.icao24.uppercase()}",
+                                        color = AvionicsTextDim,
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+
+                                if (!regParty.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "👤 Rep/Agent: $regParty",
+                                            color = RadarCyan,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+
+                                        if (regState != null) {
+                                            Text(
+                                                text = "📍 $regState",
+                                                color = AvionicsTextDim,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             // Storm Weather Cell Proximity Advisory
@@ -432,27 +491,36 @@ fun AircraftListView(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Aircraft Type Chip: TAPPING POPS UP PICTURE OF CRAFT & SPECS
+                                // Aircraft/Helicopter Type Chip: TAPPING POPS UP PICTURE OF CRAFT & PUBLIC REGISTRY DETAILS
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xFF071B11))
-                                        .border(1.dp, RadarGreen, RoundedCornerShape(6.dp))
-                                        .clickable { onViewTypeDetails(typeInfo) }
+                                        .background(if (aircraft.isHelicopter) Color(0xFF041E26) else Color(0xFF071B11))
+                                        .border(1.dp, if (aircraft.isHelicopter) RadarCyan else RadarGreen, RoundedCornerShape(6.dp))
+                                        .clickable { onViewTypeDetails(typeInfo, aircraft) }
                                         .padding(horizontal = 8.dp, vertical = 4.dp)
                                         .testTag("type_chip_${aircraft.tailNumber}")
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.AirplanemodeActive,
-                                            contentDescription = "View Aircraft Photo",
-                                            tint = RadarGreen,
-                                            modifier = Modifier.size(13.dp)
-                                        )
+                                        if (aircraft.isHelicopter) {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_helicopter),
+                                                contentDescription = "View Helicopter Photo & Registry",
+                                                tint = RadarCyan,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.AirplanemodeActive,
+                                                contentDescription = "View Aircraft Photo & Registry",
+                                                tint = RadarGreen,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "${aircraft.aircraftTypeName} (${aircraft.aircraftTypeCode}) 📷",
-                                            color = RadarGreen,
+                                            text = "${if (aircraft.isHelicopter) "🚁" else "✈"} ${aircraft.aircraftTypeName} (${aircraft.aircraftTypeCode}) 📷",
+                                            color = if (aircraft.isHelicopter) RadarCyan else RadarGreen,
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace

@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -85,11 +86,32 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     private val _availableCastDevices = MutableStateFlow(com.example.model.CastDevice.DEFAULT_DEVICES)
     val availableCastDevices: StateFlow<List<com.example.model.CastDevice>> = _availableCastDevices.asStateFlow()
 
-    private val _selectedAircraft = MutableStateFlow<Aircraft?>(null)
-    val selectedAircraft: StateFlow<Aircraft?> = _selectedAircraft.asStateFlow()
+    private val _selectedTailNumber = MutableStateFlow<String?>(null)
+    private val _fallbackSelectedAircraft = MutableStateFlow<Aircraft?>(null)
+
+    val selectedAircraft: StateFlow<Aircraft?> = combine(
+        aircraftList,
+        _selectedTailNumber,
+        _fallbackSelectedAircraft
+    ) { list, tail, fallback ->
+        if (tail == null) null
+        else list.find { it.tailNumber.equals(tail, ignoreCase = true) || it.icao24.equals(tail, ignoreCase = true) } ?: fallback
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _selectedTypeForInfo = MutableStateFlow<AircraftTypeInfo?>(null)
     val selectedTypeForInfo: StateFlow<AircraftTypeInfo?> = _selectedTypeForInfo.asStateFlow()
+
+    private val _selectedTailForInfo = MutableStateFlow<String?>(null)
+    private val _fallbackAircraftForInfo = MutableStateFlow<Aircraft?>(null)
+
+    val selectedAircraftForInfo: StateFlow<Aircraft?> = combine(
+        aircraftList,
+        _selectedTailForInfo,
+        _fallbackAircraftForInfo
+    ) { list, tail, fallback ->
+        if (tail == null) null
+        else list.find { it.tailNumber.equals(tail, ignoreCase = true) || it.icao24.equals(tail, ignoreCase = true) } ?: fallback
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _isLocatingGps = MutableStateFlow(false)
     val isLocatingGps: StateFlow<Boolean> = _isLocatingGps.asStateFlow()
@@ -183,16 +205,26 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun selectAircraft(aircraft: Aircraft) {
-        _selectedAircraft.value = aircraft
+    fun selectAircraft(aircraft: Aircraft?) {
+        _selectedTailNumber.value = aircraft?.tailNumber ?: aircraft?.icao24
+        _fallbackSelectedAircraft.value = aircraft
     }
 
-    fun showTypeDetails(typeInfo: AircraftTypeInfo) {
+    fun clearSelectedAircraft() {
+        _selectedTailNumber.value = null
+        _fallbackSelectedAircraft.value = null
+    }
+
+    fun showTypeDetails(typeInfo: AircraftTypeInfo, aircraft: Aircraft? = null) {
         _selectedTypeForInfo.value = typeInfo
+        _selectedTailForInfo.value = aircraft?.tailNumber ?: aircraft?.icao24
+        _fallbackAircraftForInfo.value = aircraft
     }
 
     fun dismissTypeDetails() {
         _selectedTypeForInfo.value = null
+        _selectedTailForInfo.value = null
+        _fallbackAircraftForInfo.value = null
     }
 
     fun toggleWatchlist(tailNumber: String) {

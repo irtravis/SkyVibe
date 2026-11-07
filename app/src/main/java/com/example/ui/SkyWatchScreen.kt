@@ -3,6 +3,7 @@ package com.example.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -98,6 +99,8 @@ fun SkyWatchScreen(
     val connectedCastDevice by viewModel.connectedCastDevice.collectAsState()
     val availableCastDevices by viewModel.availableCastDevices.collectAsState()
     val selectedTypeForInfo by viewModel.selectedTypeForInfo.collectAsState()
+    val selectedAircraftForInfo by viewModel.selectedAircraftForInfo.collectAsState()
+    val selectedAircraft by viewModel.selectedAircraft.collectAsState()
     val isLocatingGps by viewModel.isLocatingGps.collectAsState()
     val locationMessage by viewModel.locationMessage.collectAsState()
     val flightTracks by viewModel.flightTracks.collectAsState()
@@ -109,6 +112,12 @@ fun SkyWatchScreen(
     var showLocationRadiusDialog by remember { mutableStateOf(false) }
     var showCastDialog by remember { mutableStateOf(false) }
     var tabletRightTab by remember { mutableStateOf("LIST") } // "LIST" or "WATCHLIST" for dual-pane
+    var isRadarMaximized by remember { mutableStateOf(false) }
+
+    // Intercept back button when radar is maximized to restore normal view
+    BackHandler(enabled = isRadarMaximized) {
+        isRadarMaximized = false
+    }
 
     // Request Notification permission on Android 13+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -151,7 +160,8 @@ fun SkyWatchScreen(
             val isExpandedScreen = maxWidth >= 700.dp
 
             Column(modifier = Modifier.fillMaxSize()) {
-                // 1. OLED Top Control Bar
+                if (!isRadarMaximized || currentViewMode != "MAP") {
+                    // 1. OLED Top Control Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -508,6 +518,7 @@ fun SkyWatchScreen(
                         }
                     }
                 }
+                }
 
                 // 3. Main Content: Adaptive Dual-Pane (Tablets/Foldables) vs Single-Pane (Phones)
                 if (isExpandedScreen) {
@@ -528,12 +539,16 @@ fun SkyWatchScreen(
                                 mapLayerType = mapLayerType,
                                 stormCells = stormCells,
                                 isStormRadarEnabled = isStormRadarEnabled,
+                                selectedAircraft = selectedAircraft,
+                                isMaximized = isRadarMaximized,
+                                onToggleMaximize = { isRadarMaximized = !isRadarMaximized },
                                 onMapLayerChanged = { viewModel.setMapLayerType(it) },
                                 onToggleStormRadar = { viewModel.toggleStormRadar() },
                                 onOpenLocationPicker = { showLocationRadiusDialog = true },
                                 onSnapGps = { viewModel.acquireGpsLocation() },
                                 onAircraftSelected = { viewModel.selectAircraft(it) },
-                                onViewTypeDetails = { viewModel.showTypeDetails(it) },
+                                onDeselectAircraft = { viewModel.clearSelectedAircraft() },
+                                onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                 onToggleWatchlist = { viewModel.toggleWatchlist(it) }
                             )
                         }
@@ -583,7 +598,7 @@ fun SkyWatchScreen(
                                         aircraftList = aircraftList,
                                         telemetryFeed = telemetryFeed,
                                         isPaused = isPaused,
-                                        onViewTypeDetails = { viewModel.showTypeDetails(it) },
+                                        onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                         onToggleWatchlist = { viewModel.toggleWatchlist(it) },
                                         onAircraftSelected = { viewModel.selectAircraft(it) }
                                     )
@@ -613,50 +628,52 @@ fun SkyWatchScreen(
                     }
                 } else {
                     // COMPACT SCREEN (Phones & Folded Cover)
-                    // View Mode Switcher with Map Layer Toggling
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // MAP VIEW: Clicking when already selected cycles [RADAR -> SATELLITE -> TERRAIN]
-                        ModeTabButton(
-                            label = "${mapLayerType.displayName} ⟳",
-                            icon = Icons.Default.Radar,
-                            isSelected = currentViewMode == "MAP",
-                            onClick = {
-                                if (currentViewMode == "MAP") {
-                                    viewModel.cycleMapLayerType()
-                                } else {
-                                    viewModel.setViewMode("MAP")
-                                }
-                            },
-                            modifier = Modifier.weight(1.05f)
-                        )
-                        ModeTabButton(
-                            label = "LIST",
-                            icon = Icons.Default.FormatListBulleted,
-                            isSelected = currentViewMode == "LIST",
-                            onClick = { viewModel.setViewMode("LIST") },
-                            modifier = Modifier.weight(0.85f)
-                        )
-                        ModeTabButton(
-                            label = "WATCH",
-                            icon = Icons.Default.NotificationsActive,
-                            badgeCount = watchlist.size,
-                            isSelected = currentViewMode == "WATCHLIST",
-                            onClick = { viewModel.setViewMode("WATCHLIST") },
-                            modifier = Modifier.weight(0.95f)
-                        )
-                        ModeTabButton(
-                            label = "HISTORY",
-                            icon = Icons.Default.History,
-                            badgeCount = flightTracks.size,
-                            isSelected = currentViewMode == "HISTORY",
-                            onClick = { viewModel.setViewMode("HISTORY") },
-                            modifier = Modifier.weight(1.05f)
-                        )
+                    // View Mode Switcher with Map Layer Toggling (hidden when radar is maximized to fill entire screen)
+                    if (!isRadarMaximized || currentViewMode != "MAP") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // MAP VIEW: Clicking when already selected cycles [RADAR -> SATELLITE -> TERRAIN]
+                            ModeTabButton(
+                                label = "${mapLayerType.displayName} ⟳",
+                                icon = Icons.Default.Radar,
+                                isSelected = currentViewMode == "MAP",
+                                onClick = {
+                                    if (currentViewMode == "MAP") {
+                                        viewModel.cycleMapLayerType()
+                                    } else {
+                                        viewModel.setViewMode("MAP")
+                                    }
+                                },
+                                modifier = Modifier.weight(1.05f)
+                            )
+                            ModeTabButton(
+                                label = "LIST",
+                                icon = Icons.Default.FormatListBulleted,
+                                isSelected = currentViewMode == "LIST",
+                                onClick = { viewModel.setViewMode("LIST") },
+                                modifier = Modifier.weight(0.85f)
+                            )
+                            ModeTabButton(
+                                label = "WATCH",
+                                icon = Icons.Default.NotificationsActive,
+                                badgeCount = watchlist.size,
+                                isSelected = currentViewMode == "WATCHLIST",
+                                onClick = { viewModel.setViewMode("WATCHLIST") },
+                                modifier = Modifier.weight(0.95f)
+                            )
+                            ModeTabButton(
+                                label = "HISTORY",
+                                icon = Icons.Default.History,
+                                badgeCount = flightTracks.size,
+                                isSelected = currentViewMode == "HISTORY",
+                                onClick = { viewModel.setViewMode("HISTORY") },
+                                modifier = Modifier.weight(1.05f)
+                            )
+                        }
                     }
 
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -670,19 +687,23 @@ fun SkyWatchScreen(
                                     mapLayerType = mapLayerType,
                                     stormCells = stormCells,
                                     isStormRadarEnabled = isStormRadarEnabled,
+                                    selectedAircraft = selectedAircraft,
+                                    isMaximized = isRadarMaximized,
+                                    onToggleMaximize = { isRadarMaximized = !isRadarMaximized },
                                     onMapLayerChanged = { viewModel.setMapLayerType(it) },
                                     onToggleStormRadar = { viewModel.toggleStormRadar() },
                                     onOpenLocationPicker = { showLocationRadiusDialog = true },
                                     onSnapGps = { viewModel.acquireGpsLocation() },
                                     onAircraftSelected = { viewModel.selectAircraft(it) },
-                                    onViewTypeDetails = { viewModel.showTypeDetails(it) },
+                                    onDeselectAircraft = { viewModel.clearSelectedAircraft() },
+                                    onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                     onToggleWatchlist = { viewModel.toggleWatchlist(it) }
                                 )
                                 "LIST" -> AircraftListView(
                                     aircraftList = aircraftList,
                                     telemetryFeed = telemetryFeed,
                                     isPaused = isPaused,
-                                    onViewTypeDetails = { viewModel.showTypeDetails(it) },
+                                    onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                     onToggleWatchlist = { viewModel.toggleWatchlist(it) },
                                     onAircraftSelected = {
                                         viewModel.selectAircraft(it)
@@ -720,6 +741,7 @@ fun SkyWatchScreen(
         selectedTypeForInfo?.let { typeInfo ->
             AircraftTypeDetailDialog(
                 typeInfo = typeInfo,
+                aircraft = selectedAircraftForInfo,
                 onDismiss = { viewModel.dismissTypeDetails() }
             )
         }
