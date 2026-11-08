@@ -523,21 +523,43 @@ fun SkyWatchScreen(
 
                 // 3. Main Content: Adaptive Dual-Pane (Tablets/Foldables) vs Single-Pane (Phones)
                 if (isExpandedScreen) {
-                    // WIDE SCREEN / TABLET / FOLD8 ULTRA CANONICAL LAYOUT
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        // Left Pane (58% width): Tactical Map (Radar / Satellite / Terrain)
-                        Box(
-                            modifier = Modifier
-                                .weight(1.3f)
-                                .fillMaxHeight()
-                                .border(1.dp, OledCardBorder)
-                        ) {
-                            RadarMapView(
-                                aircraftList = aircraftList,
-                                radarCenter = radarCenter,
-                                scanRadiusNm = scanRadiusNm,
-                                isPaused = isPaused,
-                                mapLayerType = mapLayerType,
+                    if (isRadarMaximized) {
+                        RadarMapView(
+                            aircraftList = aircraftList,
+                            radarCenter = radarCenter,
+                            scanRadiusNm = scanRadiusNm,
+                            isPaused = isPaused,
+                            mapLayerType = mapLayerType,
+                            stormCells = stormCells,
+                            isStormRadarEnabled = isStormRadarEnabled,
+                            selectedAircraft = selectedAircraft,
+                            isMaximized = isRadarMaximized,
+                            onToggleMaximize = { isRadarMaximized = !isRadarMaximized },
+                            onMapLayerChanged = { viewModel.setMapLayerType(it) },
+                            onToggleStormRadar = { viewModel.toggleStormRadar() },
+                            onOpenLocationPicker = { showLocationRadiusDialog = true },
+                            onSnapGps = { viewModel.acquireGpsLocation() },
+                            onAircraftSelected = { viewModel.selectAircraft(it) },
+                            onDeselectAircraft = { viewModel.clearSelectedAircraft() },
+                            onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
+                            onToggleWatchlist = { viewModel.toggleWatchlist(it) }
+                        )
+                    } else {
+                        // WIDE SCREEN / TABLET / FOLD8 ULTRA CANONICAL LAYOUT
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            // Left Pane (58% width): Tactical Map (Radar / Satellite / Terrain)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .fillMaxHeight()
+                                    .border(1.dp, OledCardBorder)
+                            ) {
+                                RadarMapView(
+                                    aircraftList = aircraftList,
+                                    radarCenter = radarCenter,
+                                    scanRadiusNm = scanRadiusNm,
+                                    isPaused = isPaused,
+                                    mapLayerType = mapLayerType,
                                 stormCells = stormCells,
                                 isStormRadarEnabled = isStormRadarEnabled,
                                 selectedAircraft = selectedAircraft,
@@ -627,6 +649,7 @@ fun SkyWatchScreen(
                             }
                         }
                     }
+                }
                 } else {
                     // COMPACT SCREEN (Phones & Folded Cover)
                     // View Mode Switcher with Map Layer Toggling (hidden when radar is maximized to fill entire screen)

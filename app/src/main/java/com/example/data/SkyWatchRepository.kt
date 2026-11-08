@@ -68,10 +68,119 @@ class SkyWatchRepository(private val context: Context) {
 
     companion object {
         @Volatile
-        var cachedAircraftForWidget: List<Aircraft> = emptyList()
+        var cachedAircraftForWidget: List<Aircraft> = createDefaultWidgetAircraft()
 
         @Volatile
         var cachedIsPaused: Boolean = false
+
+        fun initWidgetDefaultCache() {
+            if (cachedAircraftForWidget.isEmpty()) {
+                cachedAircraftForWidget = createDefaultWidgetAircraft()
+            }
+        }
+
+        fun createDefaultWidgetAircraft(): List<Aircraft> {
+            val now = System.currentTimeMillis()
+            return listOf(
+                Aircraft(
+                    icao24 = "A3568F",
+                    callsign = "DAL1420",
+                    tailNumber = "N356DN",
+                    registeredOperator = "Delta Air Lines",
+                    aircraftTypeCode = "B738",
+                    aircraftTypeName = "Boeing 737-800",
+                    latitude = 36.52,
+                    longitude = -82.41,
+                    altitudeFt = 34000,
+                    velocityKts = 480,
+                    headingDeg = 245f,
+                    verticalRateFpm = 0,
+                    squawk = "2341",
+                    onGround = false,
+                    lastContactTimestamp = now - 12000,
+                    distanceNm = 12.5,
+                    craftCategory = com.example.model.CraftCategory.AIRPLANE
+                ),
+                Aircraft(
+                    icao24 = "A835AF",
+                    callsign = "UAL452",
+                    tailNumber = "N856UA",
+                    registeredOperator = "United Airlines",
+                    aircraftTypeCode = "B77W",
+                    aircraftTypeName = "Boeing 777-300ER",
+                    latitude = 36.65,
+                    longitude = -82.20,
+                    altitudeFt = 37000,
+                    velocityKts = 510,
+                    headingDeg = 85f,
+                    verticalRateFpm = 0,
+                    squawk = "4102",
+                    onGround = false,
+                    lastContactTimestamp = now - 8000,
+                    distanceNm = 18.2,
+                    isWatchlisted = true,
+                    watchlistLabel = "Flagship B77W",
+                    craftCategory = com.example.model.CraftCategory.AIRPLANE
+                ),
+                Aircraft(
+                    icao24 = "A206B1",
+                    callsign = "HELI04",
+                    tailNumber = "N206JR",
+                    registeredOperator = "Appalachian Rotorcraft",
+                    aircraftTypeCode = "B06",
+                    aircraftTypeName = "Bell 206L-4 LongRanger",
+                    latitude = 36.45,
+                    longitude = -82.35,
+                    altitudeFt = 2200,
+                    velocityKts = 115,
+                    headingDeg = 130f,
+                    verticalRateFpm = -150,
+                    squawk = "1200",
+                    onGround = false,
+                    lastContactTimestamp = now - 4000,
+                    distanceNm = 8.5,
+                    craftCategory = com.example.model.CraftCategory.HELICOPTER
+                ),
+                Aircraft(
+                    icao24 = "A1249C",
+                    callsign = "AAL819",
+                    tailNumber = "N124AA",
+                    registeredOperator = "American Airlines",
+                    aircraftTypeCode = "A320",
+                    aircraftTypeName = "Airbus A320-200",
+                    latitude = 36.42,
+                    longitude = -82.49,
+                    altitudeFt = 28000,
+                    velocityKts = 440,
+                    headingDeg = 190f,
+                    verticalRateFpm = -800,
+                    squawk = "5512",
+                    onGround = false,
+                    lastContactTimestamp = now - 15000,
+                    distanceNm = 7.8,
+                    craftCategory = com.example.model.CraftCategory.AIRPLANE
+                ),
+                Aircraft(
+                    icao24 = "A099E3",
+                    callsign = "EJA650",
+                    tailNumber = "N990QS",
+                    registeredOperator = "NetJets Aviation",
+                    aircraftTypeCode = "GLF6",
+                    aircraftTypeName = "Gulfstream G650",
+                    latitude = 36.38,
+                    longitude = -82.25,
+                    altitudeFt = 45000,
+                    velocityKts = 520,
+                    headingDeg = 140f,
+                    verticalRateFpm = 0,
+                    squawk = "6124",
+                    onGround = false,
+                    lastContactTimestamp = now - 6000,
+                    distanceNm = 14.1,
+                    craftCategory = com.example.model.CraftCategory.AIRPLANE
+                )
+            )
+        }
 
         private val UTC_FORMAT = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")

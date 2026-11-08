@@ -36,6 +36,7 @@
         <!-- Home Screen Widget Receiver -->
         <receiver
             android:name=".widget.SkyWatchWidgetProvider"
+            android:label="@string/widget_name"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

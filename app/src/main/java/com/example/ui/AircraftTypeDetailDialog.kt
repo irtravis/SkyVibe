@@ -464,6 +464,268 @@ fun AircraftTypeDetailDialog(
                     }
                 }
 
+                // ACTIVE FLIGHT PLAN & ROUTE NAVIGATION SECTION
+                val flightPlan = aircraft?.resolvedFlightPlan ?: com.example.model.Aircraft(
+                    icao24 = "DEMO01",
+                    callsign = typeInfo.typeCode,
+                    tailNumber = "N${typeInfo.typeCode}X",
+                    registeredOperator = "${typeInfo.manufacturer} Operational Fleet",
+                    aircraftTypeCode = typeInfo.typeCode,
+                    aircraftTypeName = typeInfo.modelName,
+                    latitude = 36.5,
+                    longitude = -82.4,
+                    altitudeFt = typeInfo.cruiseAltitudeFt,
+                    velocityKts = typeInfo.maxSpeedKts,
+                    headingDeg = 90f,
+                    verticalRateFpm = 0,
+                    squawk = "1200",
+                    onGround = false,
+                    lastContactTimestamp = System.currentTimeMillis(),
+                    craftCategory = if (isHelicopter) CraftCategory.HELICOPTER else CraftCategory.AIRPLANE
+                ).resolvedFlightPlan
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SectionHeader(title = "ACTIVE FLIGHT PLAN & ROUTE DATA")
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF002B1D))
+                            .border(1.dp, RadarGreen, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = flightPlan.flightRules,
+                            color = RadarGreen,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = OledSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A2B))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        // 1. Origin to Destination Route Banner
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Origin
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ORIGIN",
+                                    color = AvionicsTextDim,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = flightPlan.originIcao,
+                                    color = RadarCyan,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = flightPlan.originCity,
+                                    color = AvionicsTextSecondary,
+                                    fontSize = 10.sp,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "DEP: ${flightPlan.departureTimeUtc}",
+                                    color = AvionicsTextDim,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+
+                            // Flight Path Vector Progress
+                            Column(
+                                modifier = Modifier.weight(1.2f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = flightPlan.flightNumber,
+                                    color = AvionicsTextPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text("──", color = RadarGreen, fontSize = 11.sp)
+                                    if (isHelicopter) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_helicopter),
+                                            contentDescription = null,
+                                            tint = RadarCyan,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.AirplanemodeActive,
+                                            contentDescription = null,
+                                            tint = RadarGreen,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Text("──▶", color = RadarGreen, fontSize = 11.sp)
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "${(flightPlan.progressPct * 100).toInt()}% ENROUTE",
+                                    color = RadarGreen,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+
+                            // Destination
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.End
+                            ) {
+                                Text(
+                                    text = "DESTINATION",
+                                    color = AvionicsTextDim,
+                                    fontSize = 8.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = flightPlan.destinationIcao,
+                                    color = RadarGreen,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = flightPlan.destinationCity,
+                                    color = AvionicsTextSecondary,
+                                    fontSize = 10.sp,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "ETA: ${flightPlan.estimatedArrivalUtc}",
+                                    color = RadarGreen,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+
+                        // Progress Line
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color(0xFF14261C))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(flightPlan.progressPct)
+                                    .height(4.dp)
+                                    .background(if (isHelicopter) RadarCyan else RadarGreen)
+                            )
+                        }
+
+                        // 2. Route Airway & Waypoints
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "FILED ROUTE / AIRWAYS",
+                            color = AvionicsTextDim,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF040A07))
+                                .border(1.dp, Color(0xFF142B20), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = flightPlan.routeAirway,
+                                color = RadarGreen,
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 3. Flight Plan Details Grid
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TelemetryCard(
+                                label = "PLANNED ALTITUDE",
+                                value = if (flightPlan.plannedAltitudeFt >= 18000) "FL${flightPlan.plannedAltitudeFt / 100}" else "${flightPlan.plannedAltitudeFt} ft",
+                                sub = "Cruise flight level",
+                                modifier = Modifier.weight(1f)
+                            )
+                            TelemetryCard(
+                                label = "FILED SPEED",
+                                value = "${flightPlan.filedAirspeedKts} kts",
+                                sub = "True Airspeed (TAS)",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TelemetryCard(
+                                label = "ATC SECTOR",
+                                value = flightPlan.atcSector,
+                                sub = "Active radar control",
+                                valueColor = RadarCyan,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TelemetryCard(
+                                label = "DISTANCE / ETE",
+                                value = "${flightPlan.distanceRemainingNm} NM",
+                                sub = "${flightPlan.eteMinutes} min remaining",
+                                valueColor = RadarGreen,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        DetailRow(
+                            label = "Origin Facility",
+                            value = flightPlan.originName
+                        )
+                        DetailRow(
+                            label = "Destination Facility",
+                            value = flightPlan.destinationName
+                        )
+                        DetailRow(
+                            label = "Filed Alternate",
+                            value = flightPlan.alternateAirport
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Specifications Grid

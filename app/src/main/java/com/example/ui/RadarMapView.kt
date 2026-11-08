@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +31,15 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AirplanemodeActive
@@ -37,6 +47,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
@@ -53,6 +66,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -147,6 +161,18 @@ fun RadarMapView(
     // Zoom & Pan state: zoom out is bounded strictly to 1.0f (selected range), zoom in up to 5.0f
     var zoomScale by remember { mutableFloatStateOf(1.0f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
+
+    // Selected aircraft bottom detail card: state for sliding down so just tail number is visible
+    var isDetailMinimized by remember(liveSelectedAircraft?.tailNumber) { mutableStateOf(false) }
+
+    // Maximize mode sliding control & info panel state (variable sliding width with thin edge bar)
+    var rightPanelWidthDp by remember { mutableFloatStateOf(260f) }
+    var isRightPanelClosed by remember { mutableStateOf(false) }
+    val animatedPanelWidthDp by animateDpAsState(
+        targetValue = if (isMaximized && !isRightPanelClosed) rightPanelWidthDp.coerceIn(160f, 340f).dp else 0.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "RightPanelWidthAnim"
+    )
 
     // Map Orientation Mode: REGULAR (North Up), FOLLOW_NORTH (Phone Compass Gyro), FOLLOW_AIRCRAFT (Track Up)
     var orientationMode by remember { mutableStateOf(MapOrientationMode.REGULAR) }
@@ -674,7 +700,7 @@ fun RadarMapView(
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 10.dp),
+                    .padding(end = if (isMaximized && !isRightPanelClosed) (animatedPanelWidthDp + 10.dp) else 10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -752,7 +778,10 @@ fun RadarMapView(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 12.dp, bottom = if (liveSelectedAircraft != null) 230.dp else 12.dp)
+                        .padding(
+                            start = 12.dp,
+                            bottom = if (liveSelectedAircraft != null) (if (isDetailMinimized) 64.dp else 230.dp) else 12.dp
+                        )
                         .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xD0000000))
                         .border(1.dp, OledCardBorder, RoundedCornerShape(6.dp))
@@ -781,9 +810,9 @@ fun RadarMapView(
             }
         }
 
-        // Target Inspection Bottom Card (continually streams live data for selected plane, hidden when maximized)
-        if (!isMaximized) {
-            liveSelectedAircraft?.let { target ->
+        // Target Inspection Bottom Card (continually streams live data for selected plane)
+        // Can be slid down so just the plane tail number is visible, allowing the radar screen to be seen while plane is still selected
+        liveSelectedAircraft?.let { target ->
             val typeInfo = AircraftRegistry.getAircraftType(target.aircraftTypeCode)
             val isHeli = target.isHelicopter || typeInfo.isHelicopter
             val pubReg = target.publicRegistry
@@ -791,16 +820,49 @@ fun RadarMapView(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(10.dp)
+                    .padding(
+                        start = 10.dp,
+                        end = if (isMaximized && !isRightPanelClosed) (animatedPanelWidthDp + 10.dp) else 10.dp,
+                        bottom = 10.dp
+                    )
                     .align(Alignment.BottomCenter)
                     .clip(RoundedCornerShape(14.dp))
-                    .border(1.5.dp, if (target.isWatchlisted) RadarAmber else if (isHeli) RadarCyan else RadarGreen, RoundedCornerShape(14.dp)),
-                colors = CardDefaults.cardColors(containerColor = OledBlack)
+                    .border(
+                        1.5.dp,
+                        if (target.isWatchlisted) RadarAmber else if (isHeli) RadarCyan else RadarGreen,
+                        RoundedCornerShape(14.dp)
+                    )
+                    .animateContentSize()
+                    .pointerInput(target.tailNumber) {
+                        detectVerticalDragGestures { _, dragAmount ->
+                            if (dragAmount > 12) {
+                                isDetailMinimized = true // Swiped down
+                            } else if (dragAmount < -12) {
+                                isDetailMinimized = false // Swiped up
+                            }
+                        }
+                    },
+                colors = CardDefaults.cardColors(containerColor = OledBlack.copy(alpha = 0.96f))
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    // Top header: Icon, Identification, Watchlist/Live stream badge, Distance, Close
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    // Thin Top Drag Handle to indicate the window can be slid down or expanded
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color(0xFF334A3E))
+                            .clickable { isDetailMinimized = !isDetailMinimized }
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Top header: Icon, Identification, Watchlist/Live stream badge, Distance, Slide Down / Expand, Close
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isDetailMinimized = !isDetailMinimized },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -875,6 +937,22 @@ fun RadarMapView(
                                 fontFamily = FontFamily.Monospace
                             )
                             Spacer(modifier = Modifier.width(4.dp))
+
+                            // Slide Down (Minimize) / Expand Toggle Button
+                            IconButton(
+                                onClick = { isDetailMinimized = !isDetailMinimized },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDetailMinimized) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (isDetailMinimized) "Expand Details" else "Slide Down to Tail Number",
+                                    tint = RadarCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(2.dp))
+
                             IconButton(
                                 onClick = onDeselectAircraft,
                                 modifier = Modifier.size(24.dp)
@@ -889,154 +967,522 @@ fun RadarMapView(
                         }
                     }
 
-                    // Operator and Registered Owner info
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = pubReg?.registeredOwner ?: target.registeredOperator,
-                        color = RadarCyan,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace,
-                        maxLines = 1
-                    )
-                    pubReg?.registeredParty?.let { rep ->
+                    if (isDetailMinimized) {
+                        // MINIMIZED STATE: Just the plane tail number & concise stats visible, allowing full radar visibility
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${pubReg?.registeredOwner ?: target.registeredOperator} · ${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}°",
+                                color = AvionicsTextSecondary,
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "▲ SLIDE UP",
+                                color = RadarCyan,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    } else {
+                        // EXPANDED STATE: Full avionics details, public owner, telemetry grid, and action buttons
+                        // Operator and Registered Owner info
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Representative: $rep (${pubReg.registryStateOrProvince ?: "FAA"})",
-                            color = AvionicsTextDim,
-                            fontSize = 9.5.sp,
+                            text = pubReg?.registeredOwner ?: target.registeredOperator,
+                            color = RadarCyan,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.Monospace,
                             maxLines = 1
                         )
-                    }
+                        pubReg?.registeredParty?.let { rep ->
+                            Text(
+                                text = "Representative: $rep (${pubReg.registryStateOrProvince ?: "FAA"})",
+                                color = AvionicsTextDim,
+                                fontSize = 9.5.sp,
+                                maxLines = 1
+                            )
+                        }
 
-                    // Storm cell proximity warning banner
-                    if (isStormRadarEnabled && target.nearestStormName != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (target.isInsideStorm) Color(0xFF3B0B0B) else Color(0xFF261D00))
-                                .border(1.dp, if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 3.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                        // Storm cell proximity warning banner
+                        if (isStormRadarEnabled && target.nearestStormName != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (target.isInsideStorm) Color(0xFF3B0B0B) else Color(0xFF261D00))
+                                    .border(1.dp, if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp)
                             ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (target.isInsideStorm) "⚠️ IN STORM CELL: ${target.nearestStormName}" else "⚡ PROX: ${target.nearestStormName}",
+                                        color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = if (target.isInsideStorm) "HAIL CORE" else "${String.format(Locale.US, "%.1f", target.nearestStormDistanceNm ?: 0.0)} NM (${target.nearestStormDbz} dBZ)",
+                                        color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Live Telemetry Grid (continually updates with ADS-B scans)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("ALTITUDE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                Text(target.formattedAltitude, color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("${target.altitudeFt} ft", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            Column {
+                                Text("GROUND SPEED", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                Text("${target.velocityKts} kts", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("${(target.velocityKts * 1.15).toInt()} mph", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            Column {
+                                Text("V/S RATE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                val (vsText, vsColor) = when {
+                                    target.verticalRateFpm > 100 -> "▲ +${target.verticalRateFpm}" to RadarGreen
+                                    target.verticalRateFpm < -100 -> "▼ ${target.verticalRateFpm}" to RadarAmber
+                                    else -> "▶ LEVEL" to AvionicsTextDim
+                                }
+                                Text(vsText, color = vsColor, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("fpm", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            Column {
+                                Text("TRACK", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                Text("${target.headingDeg.toInt()}°", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text(target.squawk, color = RadarCyan, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "POS: ${String.format(Locale.US, "%.4f°N, %.4f°W", target.latitude, -target.longitude)} · ADS-B 1090MHz LIVE",
+                            color = AvionicsTextDim,
+                            fontSize = 8.5.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onViewTypeDetails(typeInfo, target) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = OledSurface,
+                                    contentColor = if (isHeli) RadarCyan else RadarGreen
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (isHeli) RadarCyan else RadarGreen)
+                            ) {
+                                Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (target.isInsideStorm) "⚠️ IN STORM CELL: ${target.nearestStormName}" else "⚡ PROX: ${target.nearestStormName}",
-                                    color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    text = if (target.isInsideStorm) "HAIL CORE" else "${String.format(Locale.US, "%.1f", target.nearestStormDistanceNm ?: 0.0)} NM (${target.nearestStormDbz} dBZ)",
-                                    color = if (target.isInsideStorm) Color(0xFFFF1744) else RadarAmber,
-                                    fontSize = 9.5.sp,
+                                    text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} PHOTO/OWNER",
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
-                        }
-                    }
 
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Live Telemetry Grid (continually updates with ADS-B scans)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("ALTITUDE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                            Text(target.formattedAltitude, color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Text("${target.altitudeFt} ft", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("GROUND SPEED", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                            Text("${target.velocityKts} kts", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Text("${(target.velocityKts * 1.15).toInt()} mph", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("V/S RATE", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                            val (vsText, vsColor) = when {
-                                target.verticalRateFpm > 100 -> "▲ +${target.verticalRateFpm}" to RadarGreen
-                                target.verticalRateFpm < -100 -> "▼ ${target.verticalRateFpm}" to RadarAmber
-                                else -> "▶ LEVEL" to AvionicsTextDim
+                            Button(
+                                onClick = { onToggleWatchlist(target.tailNumber) },
+                                modifier = Modifier.weight(0.7f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (target.isWatchlisted) Color(0xFF331400) else Color(0xFF00381B),
+                                    contentColor = if (target.isWatchlisted) RadarAmber else RadarGreen
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (target.isWatchlisted) RadarAmber else RadarGreen)
+                            ) {
+                                Icon(
+                                    imageVector = if (target.isWatchlisted) Icons.Default.Warning else Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (target.isWatchlisted) "UNWATCH" else "WATCH",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
                             }
-                            Text(vsText, color = vsColor, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Text("fpm", color = AvionicsTextDim, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
-                        }
-                        Column {
-                            Text("TRACK", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                            Text("${target.headingDeg.toInt()}°", color = AvionicsTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Text(target.squawk, color = RadarCyan, fontSize = 8.5.sp, fontFamily = FontFamily.Monospace)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "POS: ${String.format(Locale.US, "%.4f°N, %.4f°W", target.latitude, -target.longitude)} · ADS-B 1090MHz LIVE",
-                        color = AvionicsTextDim,
-                        fontSize = 8.5.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { onViewTypeDetails(typeInfo, target) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = OledSurface,
-                                contentColor = if (isHeli) RadarCyan else RadarGreen
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isHeli) RadarCyan else RadarGreen)
-                        ) {
-                            Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} PHOTO/OWNER",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        Button(
-                            onClick = { onToggleWatchlist(target.tailNumber) },
-                            modifier = Modifier.weight(0.7f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (target.isWatchlisted) Color(0xFF331400) else Color(0xFF00381B),
-                                contentColor = if (target.isWatchlisted) RadarAmber else RadarGreen
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (target.isWatchlisted) RadarAmber else RadarGreen)
-                        ) {
-                            Icon(
-                                imageVector = if (target.isWatchlisted) Icons.Default.Warning else Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (target.isWatchlisted) "UNWATCH" else "WATCH",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
                         }
                     }
                 }
             }
         }
+
+        // 5. MAXIMIZE MODE: Right Control and Info Panel
+        // Can be slid closed variably with a small thin vertical bar on the edge to make more space for the radar screen
+        if (isMaximized) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Small Thin Vertical Bar on the edge of the panel to indicate it can be slid to the right
+                Box(
+                    modifier = Modifier
+                        .width(22.dp)
+                        .fillMaxHeight()
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (rightPanelWidthDp < 90f) {
+                                        isRightPanelClosed = true
+                                    }
+                                },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    // Dragging right (dragAmount > 0) shrinks/closes panel to the right
+                                    // Dragging left (dragAmount < 0) widens panel
+                                    val newWidth = (rightPanelWidthDp - dragAmount).coerceIn(0f, 360f)
+                                    rightPanelWidthDp = newWidth
+                                    isRightPanelClosed = newWidth <= 50f
+                                }
+                            )
+                        }
+                        .clickable {
+                            isRightPanelClosed = !isRightPanelClosed
+                            if (!isRightPanelClosed && rightPanelWidthDp < 160f) {
+                                rightPanelWidthDp = 260f
+                            }
+                        }
+                        .testTag("radar_panel_slider_bar"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Thin vertical indicator line
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(64.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (isRightPanelClosed) RadarCyan else RadarGreen)
+                    )
+
+                    // Small directional tab badge
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(OledSurface)
+                            .border(1.dp, if (isRightPanelClosed) RadarCyan else RadarGreen, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 2.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (isRightPanelClosed) "‹" else "›",
+                            color = if (isRightPanelClosed) RadarCyan else RadarGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                // Variable Sliding Right Control & Info Panel Content
+                if (animatedPanelWidthDp > 4.dp) {
+                    Surface(
+                        modifier = Modifier
+                            .width(animatedPanelWidthDp)
+                            .fillMaxHeight()
+                            .border(1.dp, OledCardBorder),
+                        color = OledBlack.copy(alpha = 0.95f)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(8.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // Panel Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tune,
+                                        contentDescription = null,
+                                        tint = RadarGreen,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "CONTROLS & INFO",
+                                        color = AvionicsTextPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(OledSurface)
+                                        .clickable { isRightPanelClosed = true }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "SLIDE ›",
+                                        color = AvionicsTextDim,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Selected Target Info (if any)
+                            if (liveSelectedAircraft != null) {
+                                val target = liveSelectedAircraft
+                                val typeInfo = AircraftRegistry.getAircraftType(target.aircraftTypeCode)
+                                val isHeli = target.isHelicopter || typeInfo.isHelicopter
+                                val pubReg = target.publicRegistry
+
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = OledSurface),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isHeli) RadarCyan else RadarGreen),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = target.displayId,
+                                                color = AvionicsTextPrimary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            Text(
+                                                text = String.format(Locale.US, "%.1f NM", target.distanceNm),
+                                                color = RadarGreen,
+                                                fontSize = 11.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                        Text(
+                                            text = pubReg?.registeredOwner ?: target.registeredOperator,
+                                            color = RadarCyan,
+                                            fontSize = 9.5.sp,
+                                            maxLines = 1,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}° · ${target.aircraftTypeCode}",
+                                            color = RadarGreen,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Button(
+                                            onClick = { onViewTypeDetails(typeInfo, target) },
+                                            modifier = Modifier.fillMaxWidth().height(28.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00381B)),
+                                            shape = RoundedCornerShape(6.dp),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                text = "PHOTO / SPECS / FLIGHT PLAN",
+                                                fontSize = 8.5.sp,
+                                                color = RadarGreen,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            // Layer Switcher
+                            Text("MAP LAYER", color = AvionicsTextDim, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                MapLayerType.values().forEach { layer ->
+                                    val isSelected = layer == mapLayerType
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Color(0xFF00381B) else OledSurface)
+                                            .border(1.dp, if (isSelected) RadarGreen else OledCardBorder, RoundedCornerShape(6.dp))
+                                            .clickable { onMapLayerChanged(layer) }
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = layer.displayName,
+                                            color = if (isSelected) RadarGreen else AvionicsTextDim,
+                                            fontSize = 8.5.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Storm Radar Toggle
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isStormRadarEnabled) Color(0xFF330030) else OledSurface)
+                                    .border(1.dp, if (isStormRadarEnabled) Color(0xFFD500F9) else OledCardBorder, RoundedCornerShape(6.dp))
+                                    .clickable { onToggleStormRadar() }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "⛈ NEXRAD STORM RADAR",
+                                    color = if (isStormRadarEnabled) Color(0xFFEA80FC) else AvionicsTextDim,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isStormRadarEnabled) "ON" else "OFF",
+                                    color = if (isStormRadarEnabled) Color(0xFFEA80FC) else AvionicsTextDim,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Center & GPS Snap
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(OledSurface)
+                                        .border(1.dp, RadarCyan, RoundedCornerShape(6.dp))
+                                        .clickable { onOpenLocationPicker() }
+                                        .padding(vertical = 5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "📍 ${radarCenter.id.uppercase()}",
+                                        color = RadarCyan,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (radarCenter.isGps) Color(0xFF00381B) else OledSurface)
+                                        .border(1.dp, if (radarCenter.isGps) RadarGreen else OledCardBorder, RoundedCornerShape(6.dp))
+                                        .clickable { onSnapGps() }
+                                        .padding(vertical = 5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "⌖ GPS SNAP",
+                                        color = if (radarCenter.isGps) RadarGreen else AvionicsTextDim,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Live Contacts in Radar Airspace
+                            Text(
+                                text = "CONTACTS IN RANGE (${aircraftList.size})",
+                                color = AvionicsTextDim,
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            aircraftList.take(15).forEach { ac ->
+                                val isAcSelected = liveSelectedAircraft?.icao24 == ac.icao24
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isAcSelected) Color(0xFF00381B) else Color(0xFF080F0C))
+                                        .border(1.dp, if (isAcSelected) RadarGreen else Color(0xFF14241B), RoundedCornerShape(4.dp))
+                                        .clickable { onAircraftSelected(ac) }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = ac.displayId,
+                                            color = if (isAcSelected) RadarGreen else AvionicsTextPrimary,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = "${ac.formattedAltitude} · ${ac.velocityKts}k · ${ac.aircraftTypeCode}",
+                                            color = AvionicsTextSecondary,
+                                            fontSize = 8.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Text(
+                                        text = String.format(Locale.US, "%.1f NM", ac.distanceNm),
+                                        color = if (isAcSelected) RadarGreen else RadarCyan,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Maximize Screen / Return Button in Lower-Right
@@ -1046,8 +1492,8 @@ fun RadarMapView(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(
-                    end = 12.dp,
-                    bottom = if (isMaximized) 18.dp else if (liveSelectedAircraft != null) 230.dp else 12.dp
+                    end = if (isMaximized && !isRightPanelClosed) (animatedPanelWidthDp + 12.dp) else 12.dp,
+                    bottom = if (liveSelectedAircraft != null) (if (isDetailMinimized) 64.dp else 230.dp) else (if (isMaximized) 18.dp else 12.dp)
                 )
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (isMaximized) Color(0xFF00381B) else OledSurface.copy(alpha = 0.94f))

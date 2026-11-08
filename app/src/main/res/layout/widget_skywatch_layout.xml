@@ -38,13 +38,16 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
-        <!-- Pause / Resume Button -->
-        <Button
+        <!-- Pause / Resume Action Pill -->
+        <TextView
             android:id="@+id/btn_widget_pause"
             android:layout_width="wrap_content"
             android:layout_height="32dp"
             android:layout_marginStart="4dp"
             android:background="@drawable/widget_btn_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
             android:minWidth="62dp"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
@@ -53,13 +56,16 @@
             android:textSize="10sp"
             android:textStyle="bold" />
 
-        <!-- View Toggle Button (Map / List) -->
-        <Button
+        <!-- View Toggle Action Pill (Map / List) -->
+        <TextView
             android:id="@+id/btn_widget_view_toggle"
             android:layout_width="wrap_content"
             android:layout_height="32dp"
             android:layout_marginStart="4dp"
             android:background="@drawable/widget_btn_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
             android:minWidth="56dp"
             android:paddingStart="6dp"
             android:paddingEnd="6dp"
@@ -68,13 +74,16 @@
             android:textSize="10sp"
             android:textStyle="bold" />
 
-        <!-- Refresh Button -->
-        <Button
+        <!-- Refresh Action Pill -->
+        <TextView
             android:id="@+id/btn_widget_refresh"
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:layout_marginStart="4dp"
             android:background="@drawable/widget_btn_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
             android:padding="0dp"
             android:text="⟳"
             android:textColor="#FFFFFF"
@@ -92,12 +101,13 @@
         android:textColor="#809988"
         android:textSize="9sp" />
 
-    <!-- Thin Divider -->
-    <View
+    <!-- Thin Divider (using ImageView, RemoteViews safe) -->
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginBottom="6dp"
-        android:background="#14261C" />
+        android:background="#14261C"
+        android:contentDescription="@null" />
 
     <!-- Scrollable Aircraft List -->
     <FrameLayout
