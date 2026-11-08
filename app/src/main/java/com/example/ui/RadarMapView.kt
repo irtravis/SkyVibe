@@ -571,7 +571,7 @@ fun RadarMapView(
                         )
                     }
 
-                    // Map Layer Switcher Pill: [RADAR | SATELLITE | TERRAIN]
+                    // Map Layer Switcher Pill: [RADAR (green scanning screen icon) | SATELLITE (🛰️) | TERRAIN (⛰️)]
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
@@ -579,7 +579,10 @@ fun RadarMapView(
                             .border(1.dp, OledCardBorder, RoundedCornerShape(20.dp))
                             .padding(2.dp)
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             MapLayerType.values().forEach { layer ->
                                 val isSelected = layer == mapLayerType
                                 Box(
@@ -595,22 +598,15 @@ fun RadarMapView(
                                             } else Color.Transparent
                                         )
                                         .clickable { onMapLayerChanged(layer) }
-                                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                                        .testTag("layer_${layer.name.lowercase()}")
+                                        .padding(horizontal = 7.dp, vertical = 4.dp)
+                                        .testTag("layer_${layer.name.lowercase()}"),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = layer.displayName,
-                                        color = if (isSelected) {
-                                            when (layer) {
-                                                MapLayerType.RADAR -> RadarGreen
-                                                MapLayerType.SATELLITE -> RadarCyan
-                                                MapLayerType.TERRAIN -> RadarAmber
-                                            }
-                                        } else AvionicsTextDim,
-                                        fontSize = 8.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    when (layer) {
+                                        MapLayerType.RADAR -> MiniRadarScreenIcon(isSelected = isSelected)
+                                        MapLayerType.SATELLITE -> Text("🛰️", fontSize = 13.sp)
+                                        MapLayerType.TERRAIN -> Text("⛰️", fontSize = 13.sp)
+                                    }
                                 }
                             }
                         }
@@ -1343,19 +1339,35 @@ fun RadarMapView(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(if (isSelected) Color(0xFF00381B) else OledSurface)
-                                            .border(1.dp, if (isSelected) RadarGreen else OledCardBorder, RoundedCornerShape(6.dp))
+                                            .background(
+                                                if (isSelected) {
+                                                    when (layer) {
+                                                        MapLayerType.RADAR -> Color(0xFF00381B)
+                                                        MapLayerType.SATELLITE -> Color(0xFF003544)
+                                                        MapLayerType.TERRAIN -> Color(0xFF332200)
+                                                    }
+                                                } else OledSurface
+                                            )
+                                            .border(
+                                                1.dp,
+                                                if (isSelected) {
+                                                    when (layer) {
+                                                        MapLayerType.RADAR -> RadarGreen
+                                                        MapLayerType.SATELLITE -> RadarCyan
+                                                        MapLayerType.TERRAIN -> RadarAmber
+                                                    }
+                                                } else OledCardBorder,
+                                                RoundedCornerShape(6.dp)
+                                            )
                                             .clickable { onMapLayerChanged(layer) }
-                                            .padding(vertical = 4.dp),
+                                            .padding(vertical = 5.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = layer.displayName,
-                                            color = if (isSelected) RadarGreen else AvionicsTextDim,
-                                            fontSize = 8.5.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        when (layer) {
+                                            MapLayerType.RADAR -> MiniRadarScreenIcon(isSelected = isSelected)
+                                            MapLayerType.SATELLITE -> Text("🛰️", fontSize = 13.sp)
+                                            MapLayerType.TERRAIN -> Text("⛰️", fontSize = 13.sp)
+                                        }
                                     }
                                 }
                             }
@@ -2163,4 +2175,99 @@ private fun DbzBlock(color: Color, label: String) {
         )
     }
 }
+
+/**
+ * Compact animated CRT radar screen icon showing green concentric range rings, crosshairs,
+ * and an active rotating sweeping radar beam. Used in the map layer switcher to maximize space.
+ */
+@Composable
+fun MiniRadarScreenIcon(
+    isSelected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "miniRadarSweep")
+    val sweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "miniSweepAngle"
+    )
+
+    Canvas(
+        modifier = modifier.size(16.dp)
+    ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = size.minDimension / 2f - 0.8f
+
+        // 1. CRT Radar Scope Background
+        drawCircle(
+            color = if (isSelected) Color(0xFF00220F) else Color(0xFF051208),
+            radius = radius,
+            center = center
+        )
+
+        // 2. Concentric Range Rings
+        drawCircle(
+            color = if (isSelected) RadarGreen else RadarGreen.copy(alpha = 0.5f),
+            radius = radius,
+            center = center,
+            style = Stroke(width = 1.2f)
+        )
+        drawCircle(
+            color = if (isSelected) RadarGreen.copy(alpha = 0.6f) else RadarGreen.copy(alpha = 0.3f),
+            radius = radius * 0.52f,
+            center = center,
+            style = Stroke(width = 0.8f)
+        )
+
+        // 3. Radar Crosshairs
+        val crossAlpha = if (isSelected) 0.5f else 0.25f
+        drawLine(
+            color = RadarGreen.copy(alpha = crossAlpha),
+            start = Offset(center.x, center.y - radius),
+            end = Offset(center.x, center.y + radius),
+            strokeWidth = 0.7f
+        )
+        drawLine(
+            color = RadarGreen.copy(alpha = crossAlpha),
+            start = Offset(center.x - radius, center.y),
+            end = Offset(center.x + radius, center.y),
+            strokeWidth = 0.7f
+        )
+
+        // 4. Scanning Beam & Trailing Phosphor Glow
+        val rad = Math.toRadians(sweepAngle.toDouble())
+        val sweepEnd = Offset(
+            x = (center.x + radius * Math.cos(rad)).toFloat(),
+            y = (center.y + radius * Math.sin(rad)).toFloat()
+        )
+
+        // Trailing sweep sector arc
+        drawArc(
+            color = RadarGreen.copy(alpha = if (isSelected) 0.35f else 0.18f),
+            startAngle = sweepAngle - 40f,
+            sweepAngle = 40f,
+            useCenter = true
+        )
+
+        // Sharp leading sweep line
+        drawLine(
+            color = if (isSelected) RadarGreen else RadarGreen.copy(alpha = 0.7f),
+            start = center,
+            end = sweepEnd,
+            strokeWidth = 1.2f
+        )
+
+        // Center transponder dot
+        drawCircle(
+            color = if (isSelected) RadarGreen else RadarGreen.copy(alpha = 0.8f),
+            radius = 1.2f,
+            center = center
+        )
+    }
+}
+
 

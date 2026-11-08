@@ -9,6 +9,7 @@ data class RadarCenter(
 ) {
     companion object {
         val PRESETS = listOf(
+            RadarCenter("tri", "TRI · Tri-Cities Airport", 36.4752, -82.4074),
             RadarCenter("jfk", "New York (JFK)", 40.6413, -73.7781),
             RadarCenter("lax", "Los Angeles (LAX)", 33.9416, -118.4085),
             RadarCenter("ord", "Chicago (ORD)", 41.9742, -87.9073),

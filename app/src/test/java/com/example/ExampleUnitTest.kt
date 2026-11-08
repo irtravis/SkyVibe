@@ -230,5 +230,14 @@ class ExampleUnitTest {
         assertTrue(streamKml.contains("<refreshMode>onInterval</refreshMode>"))
         assertTrue(streamKml.contains("<refreshInterval>5</refreshInterval>"))
     }
+
+    @Test
+    fun testDefaultRadarCenterPresetIsTri() {
+        val defaultPreset = com.example.model.RadarCenter.PRESETS.first()
+        assertEquals("tri", defaultPreset.id)
+        assertTrue(defaultPreset.name.contains("Tri-Cities"))
+        assertEquals(36.4752, defaultPreset.latitude, 0.001)
+        assertEquals(-82.4074, defaultPreset.longitude, 0.001)
+    }
 }
 

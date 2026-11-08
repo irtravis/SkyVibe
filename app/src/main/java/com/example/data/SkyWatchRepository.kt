@@ -45,10 +45,36 @@ class SkyWatchRepository(private val context: Context) {
     private val _isPaused = MutableStateFlow(prefs.getBoolean("is_paused", false))
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
-    private val _radarCenter = MutableStateFlow(RadarCenter.PRESETS[0]) // Default JFK
+    private fun loadSavedRadarCenter(): RadarCenter {
+        val latStr = prefs.getString("radar_center_lat", null)
+        val lonStr = prefs.getString("radar_center_lon", null)
+        if (latStr != null && lonStr != null) {
+            val lat = latStr.toDoubleOrNull()
+            val lon = lonStr.toDoubleOrNull()
+            if (lat != null && lon != null) {
+                val id = prefs.getString("radar_center_id", "tri") ?: "tri"
+                val name = prefs.getString("radar_center_name", "TRI · Tri-Cities Airport") ?: "TRI · Tri-Cities Airport"
+                val isGps = prefs.getBoolean("radar_center_is_gps", false)
+                return RadarCenter(id = id, name = name, latitude = lat, longitude = lon, isGps = isGps)
+            }
+        }
+        return AirportDatabase.findAirport("TRI") ?: RadarCenter.PRESETS[0]
+    }
+
+    private fun saveRadarCenter(center: RadarCenter) {
+        prefs.edit()
+            .putString("radar_center_id", center.id)
+            .putString("radar_center_name", center.name)
+            .putString("radar_center_lat", center.latitude.toString())
+            .putString("radar_center_lon", center.longitude.toString())
+            .putBoolean("radar_center_is_gps", center.isGps)
+            .apply()
+    }
+
+    private val _radarCenter = MutableStateFlow(loadSavedRadarCenter())
     val radarCenter: StateFlow<RadarCenter> = _radarCenter.asStateFlow()
 
-    private val _scanRadiusNm = MutableStateFlow(50.0)
+    private val _scanRadiusNm = MutableStateFlow(prefs.getFloat("scan_radius_nm", 50.0f).toDouble())
     val scanRadiusNm: StateFlow<Double> = _scanRadiusNm.asStateFlow()
 
     private val _telemetryFeed = MutableStateFlow<List<String>>(emptyList())
@@ -264,14 +290,17 @@ class SkyWatchRepository(private val context: Context) {
 
     fun setRadarCenter(center: RadarCenter) {
         _radarCenter.value = center
+        saveRadarCenter(center)
         initSimulatedFleet(center)
         logTelemetry("RADAR: Center shifted to ${center.name} (${String.format(Locale.US, "%.4f, %.4f", center.latitude, center.longitude)})")
         triggerSingleScan()
     }
 
     fun setScanRadius(radiusNm: Double) {
-        _scanRadiusNm.value = radiusNm.coerceIn(10.0, 200.0)
-        logTelemetry("RADAR: Scan perimeter range set to ${radiusNm.toInt()} NM")
+        val clamped = radiusNm.coerceIn(10.0, 200.0)
+        _scanRadiusNm.value = clamped
+        prefs.edit().putFloat("scan_radius_nm", clamped.toFloat()).apply()
+        logTelemetry("RADAR: Scan perimeter range set to ${clamped.toInt()} NM")
         triggerSingleScan()
     }
 
