@@ -239,5 +239,56 @@ class ExampleUnitTest {
         assertEquals(36.4752, defaultPreset.latitude, 0.001)
         assertEquals(-82.4074, defaultPreset.longitude, 0.001)
     }
+
+    @Test
+    fun testVirginiaStatePoliceHelicopterResolution() {
+        // Test tail ending in VA (e.g. N71VA, N28VA, N39VA)
+        val opN71 = AircraftRegistry.resolveRegisteredOperator("TROOPER2", "N71VA", "a710va")
+        assertTrue(opN71.contains("Virginia State Police"))
+
+        val opN28 = AircraftRegistry.resolveRegisteredOperator("", "N28VA", "a280va")
+        assertTrue(opN28.contains("Virginia State Police"))
+
+        // Public Registry must be Commonwealth of Virginia, NOT Bradley Thomas
+        val reg = AircraftRegistry.resolvePublicRegistry("N71VA", "TROOPER2", "a710va", opN71)
+        assertEquals("COMMONWEALTH OF VIRGINIA - DEPARTMENT OF STATE POLICE", reg.registeredOwner)
+        assertTrue(reg.registeredParty.contains("VIRGINIA STATE POLICE AVIATION"))
+        assertTrue(!reg.registeredOwner.contains("BRADLEY", ignoreCase = true))
+
+        // Helicopter specs & type
+        val b407 = AircraftRegistry.getAircraftType("B407")
+        assertEquals(com.example.model.CraftCategory.HELICOPTER, b407.craftCategory)
+        assertTrue(b407.isHelicopter)
+
+        // Aircraft model validation
+        val vspAircraft = com.example.model.Aircraft(
+            icao24 = "a710va",
+            callsign = "TROOPER2",
+            tailNumber = "N71VA",
+            registeredOperator = opN71,
+            aircraftTypeCode = "B407",
+            aircraftTypeName = "Bell 407GXi",
+            latitude = 36.60,
+            longitude = -82.10,
+            altitudeFt = 2400,
+            velocityKts = 135,
+            headingDeg = 75f,
+            verticalRateFpm = 0,
+            squawk = "1200",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis(),
+            craftCategory = com.example.model.CraftCategory.HELICOPTER,
+            publicRegistry = reg
+        )
+        assertTrue(vspAircraft.isHelicopter)
+
+        // Flight plan should reflect VSP Med-Flight / Public safety mission from Abingdon KVJI
+        val plan = com.example.model.Aircraft.generateDefaultFlightPlan(vspAircraft)
+        assertEquals("KVJI", plan.originIcao)
+        assertTrue(plan.originName.contains("Virginia Highlands"))
+        assertTrue(plan.originCity.contains("Abingdon"))
+        assertTrue(!plan.destinationCity.contains("Asheville"))
+        assertTrue(plan.flightRules.contains("PUBLIC SAFETY") || plan.flightRules.contains("MEDEVAC"))
+    }
 }
 

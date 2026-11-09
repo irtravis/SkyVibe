@@ -65,10 +65,18 @@ data class Aircraft(
 ) {
     val isHelicopter: Boolean
         get() = craftCategory == CraftCategory.HELICOPTER ||
-                aircraftTypeCode in listOf("B06", "B407", "UH60", "EC35", "EC45", "H145", "S76", "R44", "R22", "R66", "AS50", "CH47") ||
+                aircraftTypeCode in listOf("B06", "B407", "B412", "UH60", "EC35", "EC45", "H145", "S76", "R44", "R22", "R66", "AS50", "CH47") ||
                 aircraftTypeName.contains("Helicopter", ignoreCase = true) ||
                 aircraftTypeName.contains("Rotorcraft", ignoreCase = true) ||
-                callsign.startsWith("HELI") || callsign.startsWith("MEDEVAC") || callsign.startsWith("LIFE")
+                registeredOperator.contains("State Police", ignoreCase = true) ||
+                registeredOperator.contains("Highway Patrol", ignoreCase = true) ||
+                registeredOperator.contains("Med-Flight", ignoreCase = true) ||
+                registeredOperator.contains("Rotorcraft", ignoreCase = true) ||
+                callsign.startsWith("HELI") || callsign.startsWith("MEDEVAC") || callsign.startsWith("LIFE") ||
+                callsign.startsWith("TROOPER") || callsign.startsWith("TRPR") || callsign.startsWith("VSP") ||
+                callsign.startsWith("COPTER") || callsign.startsWith("CHOP") ||
+                (tailNumber.endsWith("VA", ignoreCase = true) && altitudeFt < 12000) ||
+                (tailNumber.endsWith("THP", ignoreCase = true) && altitudeFt < 12000)
 
     val formattedAltitude: String
         get() = if (onGround) "GROUND" else if (altitudeFt >= 18000) "FL${altitudeFt / 100}" else "${altitudeFt} ft"
@@ -336,6 +344,31 @@ data class Aircraft(
                         distanceRemainingNm = 12,
                         eteMinutes = 6,
                         alternateAirport = "KTRI (Tri-Cities Regional Airport)"
+                    )
+                }
+                // Virginia State Police Aviation (Med-Flight II / Trooper Aviation Base 2 at Abingdon KVJI)
+                aircraft.registeredOperator.contains("Virginia State Police", ignoreCase = true) ||
+                call.startsWith("TROOPER") || call.startsWith("TRPR") || call.startsWith("VSP") ||
+                (tail.endsWith("VA") && (isHeli || aircraft.altitudeFt < 12000)) -> {
+                    FlightPlanData(
+                        flightNumber = if (call.isNotBlank()) call else "$tail (VSP Trooper / Med-Flight)",
+                        originIcao = "KVJI",
+                        originName = "Virginia Highlands Airport (VSP Aviation Base 2)",
+                        originCity = "Abingdon, VA",
+                        destinationIcao = "9TN1",
+                        destinationName = "Ballad Health Regional Trauma Center / Emergency LZ",
+                        destinationCity = "Johnson City / Bristol / Kingsport",
+                        departureTimeUtc = depTime,
+                        estimatedArrivalUtc = arrTime,
+                        plannedAltitudeFt = 2500,
+                        filedAirspeedKts = 135,
+                        routeAirway = "VSP EMERGENCY PUBLIC SAFETY / AEROMEDICAL PATROL ROUTE",
+                        flightRules = "VFR / PUBLIC SAFETY & EMERGENCY MEDEVAC PRIORITY",
+                        progressPct = 0.55f,
+                        atcSector = "Tri-Cities Tower / Approach Control (128.0)",
+                        distanceRemainingNm = 16,
+                        eteMinutes = 7,
+                        alternateAirport = "KVJI (Abingdon Base) / KTRI"
                     )
                 }
                 // Civil / Utility Rotorcraft

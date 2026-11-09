@@ -190,6 +190,51 @@ object AircraftRegistry {
             drawableResName = "plane_bell_206",
             craftCategory = CraftCategory.HELICOPTER
         ),
+        "B407" to AircraftTypeInfo(
+            typeCode = "B407",
+            modelName = "Bell 407GXi",
+            manufacturer = "Bell Textron Helicopter",
+            category = "Four-Blade Tactical & Law Enforcement Helicopter",
+            maxSpeedKts = 140,
+            cruiseAltitudeFt = 18900,
+            rangeNm = 324,
+            wingspanMeters = 10.67,
+            passengerCapacity = "1 Pilot + 5-6 Tactical Officers / Medical Crew",
+            engines = "Rolls-Royce 250-C47E/4 Turboshaft (813 shp)",
+            description = "High-performance light turbine helicopter serving as the primary multi-mission airframe for the Virginia State Police (VSP Aviation) and highway patrols for airborne law enforcement, FLIR surveillance, and search & rescue.",
+            drawableResName = "plane_bell_206",
+            craftCategory = CraftCategory.HELICOPTER
+        ),
+        "EC45" to AircraftTypeInfo(
+            typeCode = "EC45",
+            modelName = "Airbus Helicopters H145 / EC145",
+            manufacturer = "Airbus Helicopters",
+            category = "Twin-Turbine Critical Care Aeromedical Helicopter",
+            maxSpeedKts = 145,
+            cruiseAltitudeFt = 18000,
+            rangeNm = 370,
+            wingspanMeters = 11.0,
+            passengerCapacity = "2 Flight Crew + 2 Flight Nurses + 1 Critical Patient",
+            engines = "2x Turbomeca Arriel 1E2 / 2E Turboshafts (738 shp each)",
+            description = "Twin-engine aeromedical critical care helicopter operated as Med-Flight II out of Virginia Highlands Airport in Abingdon, VA, providing emergency trauma transport for Southwest Virginia and East Tennessee.",
+            drawableResName = "plane_bell_206",
+            craftCategory = CraftCategory.HELICOPTER
+        ),
+        "B412" to AircraftTypeInfo(
+            typeCode = "B412",
+            modelName = "Bell 412EPX Med-Flight",
+            manufacturer = "Bell Textron Helicopter",
+            category = "Twin-Turbine Medium Transport Helicopter",
+            maxSpeedKts = 140,
+            cruiseAltitudeFt = 20000,
+            rangeNm = 358,
+            wingspanMeters = 14.02,
+            passengerCapacity = "2 Pilots + Up to 13 Passengers / Patients",
+            engines = "2x Pratt & Whitney Canada PT6T-9 Twin-Pac (1,800 shp)",
+            description = "Rugged twin-engine helicopter utilized by the Virginia State Police for aeromedical evacuation and disaster response.",
+            drawableResName = "plane_bell_206",
+            craftCategory = CraftCategory.HELICOPTER
+        ),
         "F16" to AircraftTypeInfo(
             typeCode = "F16",
             modelName = "General Dynamics F-16 Fighting Falcon",
@@ -220,16 +265,26 @@ object AircraftRegistry {
         val cleanTail = tailNumber.trim().uppercase()
         val cleanHex = icao24.trim().lowercase()
 
-        // Known private jet fleets, medevac choppers, and state operators
+        // Known state police, medevac choppers, private jet fleets, and military operators
         return when {
+            // Virginia State Police Aviation Division (Med-Flight II / Trooper helicopters based at Abingdon KVJI, Chesterfield, Lynchburg)
+            cleanCallsign.startsWith("TROOPER") || cleanCallsign.startsWith("TRPR") ||
+            cleanCallsign.startsWith("VSP") || cleanCallsign.startsWith("VASTATE") ||
+            cleanCallsign.startsWith("VAPOLICE") || cleanTail.endsWith("VA") -> "Virginia State Police (Aviation Division)"
+
+            // Highway Patrol / State Police Units
+            cleanCallsign.startsWith("THP") || cleanTail.endsWith("THP") -> "Tennessee Highway Patrol Aviation"
+            cleanCallsign.startsWith("SHP") || cleanTail.endsWith("SHP") || cleanTail.endsWith("HP") -> "State Highway Patrol Aviation"
+            cleanCallsign.startsWith("POLICE") || cleanCallsign.startsWith("SHERIFF") || cleanCallsign.startsWith("COPTER") -> "Law Enforcement Public Safety Aviation"
+            cleanCallsign.startsWith("MED") || cleanCallsign.startsWith("LIFE") || cleanCallsign.startsWith("MDFLT") -> "Emergency Air Medical Transport (Medevac)"
+            cleanCallsign.startsWith("HELI") || cleanCallsign.startsWith("CHOP") -> "Airborne Rotorcraft Charters"
+
             cleanCallsign.startsWith("EJA") || cleanTail.endsWith("QS") -> "NetJets Aviation"
             cleanCallsign.startsWith("LXJ") -> "Flexjet LLC"
             cleanCallsign.startsWith("VJT") -> "VistaJet Operations"
             cleanCallsign.startsWith("WUP") -> "Wheels Up Aviation"
             cleanCallsign.startsWith("XOJ") -> "XOJET Private Charters"
             cleanCallsign.startsWith("SPX") -> "SpaceX Flight Operations"
-            cleanCallsign.startsWith("MED") || cleanCallsign.startsWith("LIFE") -> "Emergency Air Medical Transport"
-            cleanCallsign.startsWith("HELI") || cleanCallsign.startsWith("CHOP") -> "Airborne Rotorcraft Charters"
             cleanCallsign.startsWith("RCH") || cleanCallsign.startsWith("MC") -> "United States Air Force"
             cleanCallsign.startsWith("NAVY") || cleanCallsign.startsWith("CNV") -> "United States Navy"
             cleanCallsign.startsWith("ARMY") || cleanCallsign.startsWith("PAT") -> "United States Army Aviation"
@@ -410,6 +465,28 @@ object AircraftRegistry {
                     "Fleet Operations Corporate Agent",
                     "Commercial Charter Operator (Part 135)",
                     "New York"
+                )
+            }
+            cleanCallsign.startsWith("TROOPER") || cleanCallsign.startsWith("TRPR") ||
+            cleanCallsign.startsWith("VSP") || cleanCallsign.startsWith("VASTATE") ||
+            cleanCallsign.startsWith("VAPOLICE") || cleanTail.endsWith("VA") ||
+            operator.contains("Virginia State Police", ignoreCase = true) -> {
+                Tuple5(
+                    "COMMONWEALTH OF VIRGINIA - DEPARTMENT OF STATE POLICE",
+                    "VIRGINIA STATE POLICE AVIATION DIVISION (Med-Flight II)",
+                    "State Police Aviation Base Commander / Designated Public Safety Agent",
+                    "State Government / Public Safety Rotorcraft (Part 91 Public Aircraft Operations)",
+                    "Virginia"
+                )
+            }
+            cleanCallsign.startsWith("THP") || cleanTail.endsWith("THP") ||
+            operator.contains("Tennessee Highway Patrol", ignoreCase = true) -> {
+                Tuple5(
+                    "STATE OF TENNESSEE - DEPARTMENT OF SAFETY & HOMELAND SECURITY",
+                    "TENNESSEE HIGHWAY PATROL SPECIAL OPERATIONS AVIATION",
+                    "Highway Patrol Aviation Supervisor",
+                    "State Law Enforcement Public Aircraft",
+                    "Tennessee"
                 )
             }
             cleanCallsign.startsWith("MED") || cleanCallsign.startsWith("LIFE") -> {
@@ -650,7 +727,17 @@ object AircraftRegistry {
     }
 
     fun getAircraftType(code: String): AircraftTypeInfo {
-        return AIRCRAFT_TYPES[code] ?: AIRCRAFT_TYPES["B738"]!!
+        val clean = code.trim().uppercase()
+        val mappedCode = when (clean) {
+            "EC145", "H145", "BK117", "BK117C2", "BK17" -> "EC45"
+            "BELL407", "407", "B07" -> "B407"
+            "BELL412", "412", "B12" -> "B412"
+            "BELL206", "206", "B206" -> "B06"
+            "H135", "EC135" -> "EC35"
+            "BLACKHAWK", "H60" -> "UH60"
+            else -> clean
+        }
+        return AIRCRAFT_TYPES[mappedCode] ?: AIRCRAFT_TYPES["B738"]!!
     }
 
     private data class Tuple5<A, B, C, D, E>(

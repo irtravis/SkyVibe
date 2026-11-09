@@ -68,11 +68,17 @@ fun AircraftTypeDetailDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val imageResId = typeInfo.drawableResName?.let {
-        context.resources.getIdentifier(it, "drawable", context.packageName)
-    } ?: 0
-
     val isHelicopter = typeInfo.isHelicopter || aircraft?.isHelicopter == true
+    val imageResId = if (isHelicopter) {
+        val heliRes = typeInfo.drawableResName?.let {
+            context.resources.getIdentifier(it, "drawable", context.packageName)
+        } ?: 0
+        if (heliRes != 0) heliRes else context.resources.getIdentifier("plane_bell_206", "drawable", context.packageName)
+    } else {
+        typeInfo.drawableResName?.let {
+            context.resources.getIdentifier(it, "drawable", context.packageName)
+        } ?: 0
+    }
     val publicReg = aircraft?.publicRegistry
 
     Dialog(onDismissRequest = onDismiss) {

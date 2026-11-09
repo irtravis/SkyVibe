@@ -465,15 +465,30 @@ class SkyWatchRepository(private val context: Context) {
             val vertRateMs = (row.getOrNull(11) as? Number)?.toDouble() ?: 0.0
             val vertRateFpm = (vertRateMs * 196.85).roundToInt()
             val squawk = (row.getOrNull(14) as? String) ?: "1200"
+            // Index 17 is ADS-B Emitter Category (Category 8 is ROTORCRAFT / HELICOPTER)
+            val emitterCategory = (row.getOrNull(17) as? Number)?.toInt() ?: 0
 
             val tailNumber = AircraftRegistry.convertIcao24ToTailNumber(icao24)
             val operator = AircraftRegistry.resolveRegisteredOperator(callsign, tailNumber, icao24)
-            val typeInfo = selectTypeHeuristic(callsign, altitudeFt)
+            val typeInfo = selectTypeHeuristic(
+                callsign = callsign,
+                tailNumber = tailNumber,
+                altitudeFt = altitudeFt,
+                velocityKts = velocityKts,
+                emitterCategory = emitterCategory,
+                operator = operator
+            )
 
             val dist = calculateDistanceNm(center.latitude, center.longitude, lat, lon)
             val isWatched = watchMap.containsKey(tailNumber.uppercase()) || watchMap.containsKey(callsign.uppercase())
             val watchItem = watchMap[tailNumber.uppercase()] ?: watchMap[callsign.uppercase()]
             val publicReg = AircraftRegistry.resolvePublicRegistry(tailNumber, callsign, icao24, operator)
+
+            val finalCategory = if (typeInfo.isHelicopter || emitterCategory == 8) {
+                com.example.model.CraftCategory.HELICOPTER
+            } else {
+                typeInfo.craftCategory
+            }
 
             return Aircraft(
                 icao24 = icao24,
@@ -494,7 +509,7 @@ class SkyWatchRepository(private val context: Context) {
                 distanceNm = dist,
                 isWatchlisted = isWatched,
                 watchlistLabel = watchItem?.label,
-                craftCategory = typeInfo.craftCategory,
+                craftCategory = finalCategory,
                 publicRegistry = publicReg
             )
         } catch (_: Exception) {
@@ -502,17 +517,50 @@ class SkyWatchRepository(private val context: Context) {
         }
     }
 
-    private fun selectTypeHeuristic(callsign: String, altitudeFt: Int): com.example.model.AircraftTypeInfo {
+    private fun selectTypeHeuristic(
+        callsign: String,
+        tailNumber: String,
+        altitudeFt: Int,
+        velocityKts: Int = 0,
+        emitterCategory: Int = 0,
+        operator: String = ""
+    ): com.example.model.AircraftTypeInfo {
         val cs = callsign.uppercase()
+        val tail = tailNumber.uppercase()
+        val op = operator.uppercase()
+
+        // 1. Detect Rotorcraft / Helicopters with highest priority
+        val isRotorcraft = emitterCategory == 8 ||
+                cs.startsWith("HELI") || cs.startsWith("CHOP") || cs.startsWith("COPTER") ||
+                cs.startsWith("TROOPER") || cs.startsWith("TRPR") || cs.startsWith("VSP") ||
+                cs.startsWith("MED") || cs.startsWith("LIFE") || cs.startsWith("MDFLT") ||
+                tail.endsWith("VA") || tail.endsWith("THP") || tail.endsWith("SHP") ||
+                op.contains("VIRGINIA STATE POLICE") || op.contains("HIGHWAY PATROL") ||
+                op.contains("ROTORCRAFT") || op.contains("MEDEVAC") || op.contains("AIR METHODS")
+
+        if (isRotorcraft) {
+            return when {
+                // Specific VSP / State airframes
+                tail in listOf("N40VA", "N28VA") -> AircraftRegistry.getAircraftType("B412")
+                tail in listOf("N39VA", "N29VA", "N37VA") -> AircraftRegistry.getAircraftType("EC45")
+                tail.endsWith("VA") || cs.startsWith("TROOPER") || cs.startsWith("VSP") || op.contains("VIRGINIA STATE POLICE") -> AircraftRegistry.getAircraftType("B407")
+                // Medevac
+                cs.startsWith("MED") || cs.startsWith("LIFE") || op.contains("AIR METHODS") -> AircraftRegistry.getAircraftType("EC35")
+                // Military
+                cs.startsWith("ARMY") || cs.startsWith("HAWK") || op.contains("ARMY") -> AircraftRegistry.getAircraftType("UH60")
+                // General Rotorcraft default
+                else -> AircraftRegistry.getAircraftType("B06")
+            }
+        }
+
+        // 2. Fixed-wing types
         return when {
-            cs.startsWith("HELI") || cs.startsWith("CHOP") -> AircraftRegistry.getAircraftType("B06")
-            cs.startsWith("MED") || cs.startsWith("LIFE") -> AircraftRegistry.getAircraftType("EC35")
             cs.startsWith("ARMY") || cs.startsWith("HAWK") -> AircraftRegistry.getAircraftType("UH60")
-            cs.startsWith("EJA") || cs.startsWith("LXJ") || cs.startsWith("VJT") || cs.startsWith("XOJ") -> AircraftRegistry.getAircraftType("GLF6")
+            cs.startsWith("EJA") || cs.startsWith("LXJ") || cs.startsWith("VJT") || cs.startsWith("XOJ") || tail.endsWith("QS") -> AircraftRegistry.getAircraftType("GLF6")
             altitudeFt > 36000 -> AircraftRegistry.getAircraftType("B77W")
-            altitudeFt < 8000 && cs.startsWith("N") -> AircraftRegistry.getAircraftType("C172")
+            altitudeFt < 10000 && (cs.startsWith("N") || tail.startsWith("N")) && velocityKts in 70..160 -> AircraftRegistry.getAircraftType("C172")
             cs.startsWith("RCH") || cs.startsWith("VIPER") -> AircraftRegistry.getAircraftType("F16")
-            cs.startsWith("DLH") || cs.startsWith("AFR") -> AircraftRegistry.getAircraftType("A320")
+            cs.startsWith("DLH") || cs.startsWith("AFR") || cs.startsWith("AAL") -> AircraftRegistry.getAircraftType("A320")
             else -> AircraftRegistry.getAircraftType("B738")
         }
     }
@@ -527,6 +575,7 @@ class SkyWatchRepository(private val context: Context) {
             TargetTemplate("A099E3", "EJA650", "N990QS", "NetJets Aviation", "GLF6", 45000, 520, 140f, 14.1),
             TargetTemplate("A77890", "FDX1124", "N778FD", "FedEx Express", "B77W", 31000, 490, 45f, 32.0),
             TargetTemplate("A43102", "N431SP", "N431SP", "Private Skyhawk Owner", "C172", 4500, 120, 215f, 6.4),
+            TargetTemplate("A710VA", "TROOPER2", "N71VA", "Virginia State Police (Aviation Division)", "B407", 2400, 135, 75f, 7.2),
             TargetTemplate("A206B1", "HELI04", "N206JR", "Appalachian Rotorcraft Charters", "B06", 2200, 115, 130f, 8.5),
             TargetTemplate("A608F2", "MEDEVAC1", "N135LS", "Air Methods / Life Star Medevac", "EC35", 1800, 130, 290f, 11.2),
             TargetTemplate("A984B7", "PAT88", "82-2371", "United States Army Aviation", "UH60", 3500, 145, 45f, 15.0),
