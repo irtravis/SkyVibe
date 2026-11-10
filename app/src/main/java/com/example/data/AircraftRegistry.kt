@@ -16,6 +16,13 @@ object AircraftRegistry {
         "ASA" to "Alaska Airlines",
         "SKW" to "SkyWest Airlines",
         "ENY" to "Envoy Air",
+        "JIA" to "PSA Airlines (American Eagle)",
+        "PDT" to "Piedmont Airlines (American Eagle)",
+        "EDV" to "Endeavor Air (Delta Connection)",
+        "RPA" to "Republic Airways",
+        "AAY" to "Allegiant Air",
+        "NKS" to "Spirit Airlines",
+        "FFT" to "Frontier Airlines",
         "FDX" to "FedEx Express",
         "UPS" to "UPS Airlines",
         "GTI" to "Atlas Air",
@@ -411,6 +418,51 @@ object AircraftRegistry {
                     "Regional Fleet Operations Representative",
                     "Regional Air Carrier (Part 121 Corporation)",
                     "Texas"
+                )
+            }
+            cleanCallsign.startsWith("JIA") || operator.contains("PSA Airlines", true) -> {
+                Tuple5(
+                    "PSA AIRLINES INC (AMERICAN EAGLE)",
+                    "CT CORPORATION SYSTEM (Registered Agent)",
+                    "Regional Flight Operations Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Ohio"
+                )
+            }
+            cleanCallsign.startsWith("PDT") || operator.contains("Piedmont", true) -> {
+                Tuple5(
+                    "PIEDMONT AIRLINES INC (AMERICAN EAGLE)",
+                    "THE CORPORATION TRUST COMPANY (Registered Agent)",
+                    "Regional Fleet Operations Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Maryland"
+                )
+            }
+            cleanCallsign.startsWith("EDV") || operator.contains("Endeavor", true) -> {
+                Tuple5(
+                    "ENDEAVOR AIR INC (DELTA CONNECTION)",
+                    "CORPORATION SERVICE COMPANY (Registered Agent)",
+                    "Regional Flight Standards Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Minnesota"
+                )
+            }
+            cleanCallsign.startsWith("RPA") || operator.contains("Republic", true) -> {
+                Tuple5(
+                    "REPUBLIC AIRWAYS INC",
+                    "CT CORPORATION SYSTEM (Registered Agent)",
+                    "Commercial Fleet Operations Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Indiana"
+                )
+            }
+            cleanCallsign.startsWith("AAY") || operator.contains("Allegiant", true) -> {
+                Tuple5(
+                    "ALLEGIANT AIR LLC",
+                    "CORPORATION SERVICE COMPANY (Registered Agent)",
+                    "Commercial Fleet Representative",
+                    "Commercial Air Carrier (Part 121 Corporation)",
+                    "Nevada"
                 )
             }
             cleanCallsign.startsWith("NKS") || operator.contains("Spirit", true) -> {
