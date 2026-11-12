@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.skywatch.rzkm"
     minSdk = 24
     targetSdk = 36
-    versionCode = 14
-    versionName = "14.0"
+    versionCode = 17
+    versionName = "17.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

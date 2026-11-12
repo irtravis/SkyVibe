@@ -102,6 +102,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.AircraftDatabaseService
 import com.example.data.AircraftRegistry
 import com.example.model.Aircraft
 import com.example.model.AircraftTypeInfo
@@ -809,8 +810,11 @@ fun RadarMapView(
         // Target Inspection Bottom Card (continually streams live data for selected plane)
         // Can be slid down so just the plane tail number is visible, allowing the radar screen to be seen while plane is still selected
         liveSelectedAircraft?.let { target ->
-            val typeInfo = AircraftRegistry.getAircraftType(target.aircraftTypeCode)
-            val isHeli = target.isHelicopter || typeInfo.isHelicopter
+            val liveMeta = AircraftDatabaseService.getCachedOrFleet(target.tailNumber, target.icao24, target.registeredOperator)
+            val effectiveTypeCode = liveMeta?.icaoTypeCode ?: target.aircraftTypeCode
+            val effectiveModelName = liveMeta?.model ?: target.aircraftTypeName
+            val typeInfo = AircraftRegistry.getAircraftType(effectiveTypeCode)
+            val isHeli = target.isHelicopter || typeInfo.isHelicopter || liveMeta?.isHelicopter == true
             val pubReg = target.publicRegistry
 
             Card(
@@ -972,7 +976,7 @@ fun RadarMapView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${target.displayId} · ${target.aircraftTypeName} · ${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}°",
+                                text = "${target.displayId} · $effectiveModelName · ${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}°",
                                 color = AvionicsTextSecondary,
                                 fontSize = 9.5.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -991,7 +995,7 @@ fun RadarMapView(
                         // EXPANDED STATE: Full avionics details, aircraft type, telemetry grid, and action buttons
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${target.aircraftTypeName} · HEX #${target.icao24.uppercase()}",
+                            text = "$effectiveModelName · HEX #${target.icao24.uppercase()}",
                             color = RadarCyan,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -999,7 +1003,7 @@ fun RadarMapView(
                             maxLines = 1
                         )
                         Text(
-                            text = "${typeInfo.manufacturer} · SQUAWK ${target.squawk} · ADS-B 1090MHz",
+                            text = "${liveMeta?.manufacturer ?: typeInfo.manufacturer} · SQUAWK ${target.squawk} · ADS-B 1090MHz",
                             color = AvionicsTextDim,
                             fontSize = 9.5.sp,
                             fontFamily = FontFamily.Monospace,
@@ -1101,7 +1105,7 @@ fun RadarMapView(
                                 Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} SPECS & VERIFY",
+                                    text = "${if (isHeli) "🚁" else "✈"} $effectiveTypeCode SPECS & VERIFY",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace

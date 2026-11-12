@@ -528,8 +528,14 @@ class SkyWatchRepository(private val context: Context) {
         val cs = callsign.uppercase()
         val tail = tailNumber.uppercase()
         val op = operator.uppercase()
+        // 1. Check AircraftDatabaseService fleet resolver first
+        val dbMeta = AircraftDatabaseService.getCachedOrFleet(tail, "", operator)
+        if (dbMeta != null) {
+            val registeredType = AircraftRegistry.getAircraftType(dbMeta.icaoTypeCode)
+            return registeredType
+        }
 
-        // 1. Detect Rotorcraft / Helicopters with highest priority
+        // 2. Detect Rotorcraft / Helicopters with highest priority
         val isRotorcraft = emitterCategory == 8 ||
                 cs.startsWith("HELI") || cs.startsWith("CHOP") || cs.startsWith("COPTER") ||
                 cs.startsWith("TROOPER") || cs.startsWith("TRPR") || cs.startsWith("VSP") ||
@@ -553,7 +559,7 @@ class SkyWatchRepository(private val context: Context) {
             }
         }
 
-        // 2. Fixed-wing types
+        // 3. Fixed-wing types
         return when {
             cs.startsWith("ARMY") || cs.startsWith("HAWK") -> AircraftRegistry.getAircraftType("UH60")
             cs.startsWith("EJA") || cs.startsWith("LXJ") || cs.startsWith("VJT") || cs.startsWith("XOJ") || tail.endsWith("QS") -> AircraftRegistry.getAircraftType("GLF6")
@@ -594,7 +600,7 @@ class SkyWatchRepository(private val context: Context) {
     private fun initSimulatedFleet(center: RadarCenter) {
         simulatedFleet.clear()
         val templates = listOf(
-            TargetTemplate("A3568F", "DAL1420", "N356DN", "Delta Air Lines", "B738", 34000, 480, 245f, 12.5),
+            TargetTemplate("A40694", "DAL2472", "N359DN", "Delta Air Lines", "A321", 33000, 465, 220f, 11.2),
             TargetTemplate("A835AF", "UAL452", "N856UA", "United Airlines", "B77W", 37000, 510, 85f, 18.2),
             TargetTemplate("A1249C", "AAL819", "N124AA", "American Airlines", "B738", 28000, 440, 190f, 7.8),
             TargetTemplate("A562B1", "SWA331", "N562WN", "Southwest Airlines", "B738", 22000, 410, 310f, 25.4),

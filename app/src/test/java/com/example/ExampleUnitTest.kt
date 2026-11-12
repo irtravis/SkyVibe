@@ -504,6 +504,151 @@ class ExampleUnitTest {
         val planeBlankCallsign = planeWithCallsign.copy(callsign = "")
         assertEquals("HEX #A95123", planeBlankCallsign.displayId)
     }
+
+    @Test
+    fun testFlightAwareTailInfoResolution() {
+        // 1. American Airlines AAL1081 -> Verified Boeing 737-800, tail N951AA, photo plane_boeing_737
+        val aalCraft = com.example.model.Aircraft(
+            icao24 = "a95123",
+            callsign = "AAL1081",
+            tailNumber = "N951AA",
+            registeredOperator = "American Airlines",
+            aircraftTypeCode = "B738",
+            aircraftTypeName = "Boeing 737-800",
+            latitude = 36.36,
+            longitude = -82.40,
+            altitudeFt = 34000,
+            velocityKts = 421,
+            headingDeg = 315f,
+            verticalRateFpm = 0,
+            squawk = "2566",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis()
+        )
+        val aalInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(aalCraft)
+        assertEquals("N951AA", aalInfo.tailNumber)
+        assertEquals("Boeing 737-800", aalInfo.airframeModel)
+        assertEquals("plane_boeing_737", aalInfo.photoDrawableResName)
+        assertTrue(aalInfo.photoCorrelationSummary.contains("Boeing 737-800"))
+        assertTrue(aalInfo.flightAwareRegistrationUrl.contains("N951AA"))
+        assertTrue(aalInfo.flightAwarePhotosUrl.contains("N951AA"))
+
+        // 2. Frontier Airlines FFT4018 -> Verified Airbus A321neo, tail N705FR, photo plane_airbus_a320
+        val fftCraft = aalCraft.copy(
+            icao24 = "a967ae",
+            callsign = "FFT4018",
+            tailNumber = "N705FR",
+            registeredOperator = "Frontier Airlines",
+            aircraftTypeCode = "A321",
+            aircraftTypeName = "Airbus A321-271NX (neo)"
+        )
+        val fftInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(fftCraft)
+        assertEquals("N705FR", fftInfo.tailNumber)
+        assertEquals("Airbus A321-271NX (neo)", fftInfo.airframeModel)
+        assertEquals("plane_airbus_a320", fftInfo.photoDrawableResName)
+        assertTrue(fftInfo.photoCorrelationSummary.contains("Airbus"))
+        assertTrue(fftInfo.flightAwareRegistrationUrl.contains("N705FR"))
+
+        // 3. Envoy Air ENY4246 (American Eagle) -> Verified Embraer ERJ-170, tail N785BR, twin jet photo
+        val enyCraft = aalCraft.copy(
+            icao24 = "aaa579",
+            callsign = "ENY4246",
+            tailNumber = "N785BR",
+            registeredOperator = "Envoy Air (American Eagle)",
+            aircraftTypeCode = "E170",
+            aircraftTypeName = "Embraer ERJ-170 / E175"
+        )
+        val enyInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(enyCraft)
+        assertEquals("N785BR", enyInfo.tailNumber)
+        assertEquals("Embraer ERJ-170 / E175", enyInfo.airframeModel)
+        assertEquals("plane_boeing_737", enyInfo.photoDrawableResName) // Twin jet photo, NOT prop or Cessna
+
+        // 4. Virginia State Police Helicopter TROOPER2 -> Verified Bell 407, tail N71VA, photo plane_bell_206
+        val vspCraft = aalCraft.copy(
+            icao24 = "a71000",
+            callsign = "TROOPER2",
+            tailNumber = "N71VA",
+            registeredOperator = "Virginia State Police",
+            aircraftTypeCode = "B407",
+            aircraftTypeName = "Bell 407GXi",
+            altitudeFt = 2500,
+            velocityKts = 135,
+            craftCategory = com.example.model.CraftCategory.HELICOPTER
+        )
+        val vspInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(vspCraft)
+        assertEquals("N71VA", vspInfo.tailNumber)
+        assertEquals("Bell 407GXi", vspInfo.airframeModel)
+        assertEquals("plane_bell_206", vspInfo.photoDrawableResName) // Helicopter photo, NEVER Cessna 172
+        assertTrue(vspInfo.operatorName.contains("Virginia State Police"))
+    }
+
+    @Test
+    fun testPhotoNeverMismatchesAirframeCategory() {
+        // Any helicopter must NEVER correlate to a Cessna or airplane photo
+        val heliGeneric = com.example.model.Aircraft(
+            icao24 = "a00111",
+            callsign = "HELI01",
+            tailNumber = "N206JR",
+            registeredOperator = "Appalachian Rotorcraft Charters",
+            aircraftTypeCode = "B06",
+            aircraftTypeName = "Bell 206L LongRanger",
+            latitude = 36.5,
+            longitude = -82.5,
+            altitudeFt = 1500,
+            velocityKts = 110,
+            headingDeg = 180f,
+            verticalRateFpm = 0,
+            squawk = "1200",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis(),
+            craftCategory = com.example.model.CraftCategory.HELICOPTER
+        )
+        val heliInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(heliGeneric)
+        assertTrue(heliInfo.photoDrawableResName.contains("bell") || heliInfo.photoDrawableResName.contains("hawk"))
+        assertTrue(!heliInfo.photoDrawableResName.contains("cessna"))
+        assertTrue(!heliInfo.photoDrawableResName.contains("boeing"))
+        assertTrue(!heliInfo.photoDrawableResName.contains("airbus"))
+    }
+
+    @Test
+    fun testDeltaN359DNIsAirbusNeverBoeing() {
+        // Delta flight DAL2472 / Tail N359DN must be accurately identified as Airbus A321, NEVER Boeing 737!
+        val deltaCraft = com.example.model.Aircraft(
+            icao24 = "a40694",
+            callsign = "DAL2472",
+            tailNumber = "N359DN",
+            registeredOperator = "Delta Air Lines",
+            aircraftTypeCode = "A321",
+            aircraftTypeName = "Airbus A321-211",
+            latitude = 36.36,
+            longitude = -82.40,
+            altitudeFt = 33000,
+            velocityKts = 465,
+            headingDeg = 220f,
+            verticalRateFpm = 0,
+            squawk = "1200",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis()
+        )
+
+        // 1. FlightAware tail resolver
+        val tailInfo = com.example.data.FlightAwareRegistry.resolveFlightAwareTailInfo(deltaCraft)
+        assertEquals("N359DN", tailInfo.tailNumber)
+        assertTrue(tailInfo.airframeModel.contains("Airbus") && tailInfo.airframeModel.contains("A321"))
+        assertTrue(!tailInfo.airframeModel.contains("Boeing"))
+        assertEquals("plane_airbus_a320", tailInfo.photoDrawableResName)
+        assertTrue(!tailInfo.photoDrawableResName.contains("boeing"))
+
+        // 2. AircraftDatabaseService fleet resolution
+        val meta = com.example.data.AircraftDatabaseService.getCachedOrFleet("N359DN", "A40694", "Delta Air Lines")
+        org.junit.Assert.assertNotNull(meta)
+        assertEquals("Airbus", meta?.manufacturer)
+        assertTrue(meta?.model?.contains("Airbus") == true && meta?.model?.contains("A321") == true)
+        assertEquals("A321", meta?.icaoTypeCode)
+        assertTrue(meta?.isAirbus == true)
+        assertTrue(meta?.isBoeing == false)
+        assertEquals("plane_airbus_a320", meta?.correlatedPhotoDrawable)
+    }
 }
 
 
