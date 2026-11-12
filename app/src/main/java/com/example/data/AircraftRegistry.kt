@@ -136,6 +136,81 @@ object AircraftRegistry {
             drawableResName = "plane_cessna_172",
             craftCategory = CraftCategory.GENERAL_AVIATION
         ),
+        "E170" to AircraftTypeInfo(
+            typeCode = "E170",
+            modelName = "Embraer ERJ-170 / E175",
+            manufacturer = "Embraer S.A.",
+            category = "Twin-Engine Regional Passenger Jet",
+            maxSpeedKts = 470,
+            cruiseAltitudeFt = 41000,
+            rangeNm = 2150,
+            wingspanMeters = 26.0,
+            passengerCapacity = "70 - 76 Passengers",
+            engines = "2x General Electric CF34-8E (14,200 lbf)",
+            description = "Advanced fly-by-wire regional jet with wide cabin comfort, operated widely by Envoy Air, Republic, and SkyWest under American Eagle and Delta Connection.",
+            drawableResName = "plane_boeing_737",
+            craftCategory = CraftCategory.JET
+        ),
+        "CRJ9" to AircraftTypeInfo(
+            typeCode = "CRJ9",
+            modelName = "Bombardier CRJ-900",
+            manufacturer = "Bombardier / MHI RJ Aviation",
+            category = "Twin-Engine Regional Passenger Jet",
+            maxSpeedKts = 473,
+            cruiseAltitudeFt = 41000,
+            rangeNm = 1550,
+            wingspanMeters = 24.9,
+            passengerCapacity = "76 - 90 Passengers",
+            engines = "2x General Electric CF34-8C5 (14,510 lbf)",
+            description = "Stretched regional airliner featuring rear-mounted high-bypass turbofans and supercritical winglets, operated by PSA Airlines and Endeavor Air.",
+            drawableResName = "plane_gulfstream_g650",
+            craftCategory = CraftCategory.JET
+        ),
+        "A321" to AircraftTypeInfo(
+            typeCode = "A321",
+            modelName = "Airbus A321-200 / A321neo",
+            manufacturer = "Airbus SE",
+            category = "Narrow-Body Jet Airliner",
+            maxSpeedKts = 473,
+            cruiseAltitudeFt = 39800,
+            rangeNm = 4000,
+            wingspanMeters = 35.8,
+            passengerCapacity = "185 - 240 Passengers",
+            engines = "2x CFM LEAP-1A or Pratt & Whitney PW1100G",
+            description = "The stretched flagship of the A320 family delivering transcontinental range and high efficiency, trusted by Frontier, American, and Delta fleets.",
+            drawableResName = "plane_airbus_a320",
+            craftCategory = CraftCategory.JET
+        ),
+        "B737" to AircraftTypeInfo(
+            typeCode = "B737",
+            modelName = "Boeing 737-700",
+            manufacturer = "The Boeing Company",
+            category = "Narrow-Body Jet Airliner",
+            maxSpeedKts = 492,
+            cruiseAltitudeFt = 41000,
+            rangeNm = 3010,
+            wingspanMeters = 35.8,
+            passengerCapacity = "128 - 149 Passengers",
+            engines = "2x CFM56-7B (24,200 lbf)",
+            description = "Versatile medium-range jetliner serving high-frequency commercial routes worldwide for airlines like Southwest and United.",
+            drawableResName = "plane_boeing_737",
+            craftCategory = CraftCategory.JET
+        ),
+        "BE20" to AircraftTypeInfo(
+            typeCode = "BE20",
+            modelName = "Beechcraft Super King Air 200",
+            manufacturer = "Beechcraft (Textron Aviation)",
+            category = "Twin-Turboprop Executive & Utility Aircraft",
+            maxSpeedKts = 310,
+            cruiseAltitudeFt = 35000,
+            rangeNm = 1800,
+            wingspanMeters = 16.6,
+            passengerCapacity = "1-2 Pilots + 7-9 Passengers",
+            engines = "2x Pratt & Whitney Canada PT6A-42 turboprops (850 shp)",
+            description = "Iconic T-tail twin-turboprop aircraft renowned for rugged reliability, pressurized cabin comfort, and multi-mission utility.",
+            drawableResName = "plane_cessna_172",
+            craftCategory = CraftCategory.GENERAL_AVIATION
+        ),
         // Helicopters & Rotorcraft Catalog
         "B06" to AircraftTypeInfo(
             typeCode = "B06",
@@ -474,13 +549,58 @@ object AircraftRegistry {
                     "Florida"
                 )
             }
-            cleanCallsign.startsWith("FFT") || operator.contains("Frontier", true) -> {
+            cleanCallsign.startsWith("FFT") || cleanCallsign.startsWith("F9") || cleanTail.endsWith("FR") || operator.contains("Frontier", true) -> {
                 Tuple5(
                     "FRONTIER AIRLINES INC",
                     "CORPORATION SERVICE COMPANY (Registered Agent)",
                     "Corporate Operations Representative",
                     "Commercial Air Carrier (Part 121 Corporation)",
                     "Colorado"
+                )
+            }
+            cleanCallsign.startsWith("AAY") || operator.contains("Allegiant", true) -> {
+                Tuple5(
+                    "ALLEGIANT AIR LLC",
+                    "CORPORATION TRUST COMPANY (Registered Agent)",
+                    "Commercial Airline Representative",
+                    "Commercial Air Carrier (Part 121 Corporation)",
+                    "Nevada"
+                )
+            }
+            cleanCallsign.startsWith("JIA") || operator.contains("PSA", true) -> {
+                Tuple5(
+                    "PSA AIRLINES INC (American Eagle)",
+                    "CT CORPORATION SYSTEM (Registered Agent)",
+                    "Regional Carrier Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Ohio"
+                )
+            }
+            cleanCallsign.startsWith("PDT") || operator.contains("Piedmont", true) -> {
+                Tuple5(
+                    "PIEDMONT AIRLINES INC (American Eagle)",
+                    "THE CORPORATION TRUST COMPANY (Registered Agent)",
+                    "Regional Carrier Representative",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Maryland"
+                )
+            }
+            cleanCallsign.startsWith("EDV") || operator.contains("Endeavor", true) -> {
+                Tuple5(
+                    "ENDEAVOR AIR INC (Delta Connection)",
+                    "CT CORPORATION SYSTEM (Registered Agent)",
+                    "Regional Carrier Operations",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Minnesota"
+                )
+            }
+            cleanCallsign.startsWith("RPA") || operator.contains("Republic", true) -> {
+                Tuple5(
+                    "REPUBLIC AIRWAYS INC",
+                    "CT CORPORATION SYSTEM (Registered Agent)",
+                    "Regional Airline Operations",
+                    "Regional Air Carrier (Part 121 Corporation)",
+                    "Indiana"
                 )
             }
             cleanCallsign.startsWith("EJA") || cleanTail.endsWith("QS") -> {
@@ -492,7 +612,7 @@ object AircraftRegistry {
                     "Ohio"
                 )
             }
-            cleanCallsign.startsWith("LXJ") || cleanTail.contains("FX") -> {
+            cleanCallsign.startsWith("LXJ") || cleanTail.endsWith("FX") -> {
                 Tuple5(
                     "FLEXJET LLC",
                     "CT CORPORATION SYSTEM (Registered Agent)",
@@ -521,7 +641,7 @@ object AircraftRegistry {
             }
             cleanCallsign.startsWith("TROOPER") || cleanCallsign.startsWith("TRPR") ||
             cleanCallsign.startsWith("VSP") || cleanCallsign.startsWith("VASTATE") ||
-            cleanCallsign.startsWith("VAPOLICE") || cleanTail.endsWith("VA") ||
+            cleanCallsign.startsWith("VAPOLICE") || cleanTail.endsWith("VA") || cleanTail.endsWith("VP") ||
             operator.contains("Virginia State Police", ignoreCase = true) -> {
                 Tuple5(
                     "COMMONWEALTH OF VIRGINIA - DEPARTMENT OF STATE POLICE",
@@ -604,80 +724,14 @@ object AircraftRegistry {
                     "Paris, France"
                 )
             }
-            cleanTail == "N431SP" -> {
-                Tuple5(
-                    "BLUE RIDGE AVIATION ASSETS LLC",
-                    "VANCE HARRISON R (Managing Member & Pilot)",
-                    "Designated Managing Member / Representative",
-                    "Private Aircraft LLC",
-                    "Tennessee"
-                )
-            }
             isUs -> {
-                // FAA US Civil Registry for General Aviation - Generated uniquely per tail/hex
-                val corporateOwners = listOf(
-                    "BLUE RIDGE AVIATION ASSETS LLC",
-                    "TRI-CITIES SKYHAWK VENTURES LLC",
-                    "SUMMIT AERO HOLDINGS INC",
-                    "CAROLINA FLIGHT ADVENTURES LLC",
-                    "APPALACHIAN WINGS AIRCRAFT LEASING",
-                    "VANGUARD AVIATION PARTNERS LP",
-                    "SOUTHEAST FLIGHT SOLUTIONS INC",
-                    "PINNACLE AIR CHARTERS LLC",
-                    "MOUNTAIN SKYLINE AVIATION GROUP",
-                    "AEROPACIFIC FLIGHT SYSTEMS INC",
-                    "LONE STAR AVIATION CAPITAL LLC",
-                    "GOLDEN WINGS AERO CLUB INC"
-                )
-
-                val individualOwners = listOf(
-                    "VANCE HARRISON R (Private Owner)",
-                    "PATTERSON MICHAEL K (Private Owner)",
-                    "CHEN ROBERT M (Private Owner)",
-                    "JENKINS SARAH L (Private Owner)",
-                    "BRADLEY THOMAS E (Private Owner)",
-                    "MERCER DANIEL J (Private Owner)",
-                    "CALLAHAN PATRICIA A (Private Owner)",
-                    "REED CHRISTOPHER W (Private Owner)",
-                    "THOMPSON ELEANOR G (Private Owner)",
-                    "KAUFMAN DAVID B (Private Owner)",
-                    "WHITAKER JAMES S (Private Owner)",
-                    "SULLIVAN MARK T (Private Owner)"
-                )
-
-                val agentList = listOf(
-                    "CT CORPORATION SYSTEM (Registered Agent)",
-                    "CORPORATION SERVICE COMPANY (Representative)",
-                    "NATIONAL REGISTERED AGENTS INC (Agent)",
-                    "CAPITOL CORPORATE SERVICES INC (Representative)",
-                    "INCORPORATING SERVICES LTD (Agent)",
-                    "OWNER-PILOT / CERTIFICATED REPRESENTATIVE",
-                    "CHIEF PILOT & FLIGHT OPERATIONS DESIGNEE",
-                    "FAA DESIGNATED AIRWORTHINESS REPRESENTATIVE"
-                )
-
-                val stateList = listOf(
-                    "Tennessee", "Georgia", "Virginia", "North Carolina",
-                    "Florida", "Texas", "Ohio", "Illinois", "New York", "California"
-                )
-
-                val isCorp = (seed % 3) != 0
-                val chosenOwner = if (isCorp) {
-                    corporateOwners[(seed / 3) % corporateOwners.size]
-                } else {
-                    individualOwners[(seed / 3) % individualOwners.size]
-                }
-
-                val chosenParty = agentList[(seed / 7) % agentList.size]
-                val chosenState = stateList[(seed / 11) % stateList.size]
-                val chosenType = if (isCorp) "Commercial / Private LLC Corporation" else "Individual Private Owner"
-
+                // FAA US Civil Aircraft Registry - authentic record metadata (no fabricated names)
                 Tuple5(
-                    chosenOwner,
-                    chosenParty,
-                    if (isCorp) "Registered Corporate Agent / Legal Representative" else "Owner-Pilot / Designated Representative",
-                    chosenType,
-                    chosenState
+                    "FAA US CIVIL AIRCRAFT REGISTRY",
+                    "Public Aircraft Record #$cleanTail",
+                    "FAA Form 8050-3 Certificate of Aircraft Registration",
+                    "FAA Part 91 US Civil Aircraft",
+                    "United States"
                 )
             }
             else -> {
@@ -713,8 +767,26 @@ object AircraftRegistry {
         )
     }
 
+    private const val CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ" // FAA alphabet (no I or O)
+    private const val DIGITSET = "0123456789"
+    private const val ALLCHARS = CHARSET + DIGITSET
+
+    private const val SUFFIX_SIZE = 1 + 24 * (1 + 24) // 601
+    private const val BUCKET4_SIZE = 1 + 24 + 10 // 35
+    private const val BUCKET3_SIZE = 10 * BUCKET4_SIZE + SUFFIX_SIZE // 951
+    private const val BUCKET2_SIZE = 10 * BUCKET3_SIZE + SUFFIX_SIZE // 10111
+    private const val BUCKET1_SIZE = 10 * BUCKET2_SIZE + SUFFIX_SIZE // 101711
+
+    private fun getSuffix(offset: Int): String {
+        if (offset == 0) return ""
+        val char0 = CHARSET[(offset - 1) / (CHARSET.length + 1)]
+        val rem = (offset - 1) % (CHARSET.length + 1)
+        return if (rem == 0) char0.toString() else "$char0${CHARSET[rem - 1]}"
+    }
+
     /**
-     * Converts a US ICAO hex address (A00001 - ADF7C7) into an FAA N-Number registration.
+     * Converts a US ICAO hex address (A00001 - ADF7C7) into an FAA N-Number registration
+     * using the official FAA Mode-S mathematical algorithm.
      */
     fun convertIcao24ToTailNumber(icao24: String): String {
         val hex = icao24.trim().lowercase()
@@ -722,35 +794,35 @@ object AircraftRegistry {
 
         // US FAA Range: A00001 - ADF7C7
         if (hexInt in 0xA00001..0xADF7C7) {
-            val nInt = hexInt - 0xA00001
-            val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ" // FAA omits 'I' and 'O'
-
-            val d1 = nInt / 101711 + 1
-            var rem = nInt % 101711
-            if (rem <= 600) {
-                return if (rem == 0) "N$d1" else decodeRemainder(d1.toString(), rem, alphabet)
+            val i = hexInt - 0xA00001
+            val dig1 = i / BUCKET1_SIZE + 1
+            var rem1 = i % BUCKET1_SIZE
+            val out = StringBuilder("N$dig1")
+            if (rem1 < SUFFIX_SIZE) {
+                return out.append(getSuffix(rem1)).toString()
             }
-            rem -= 601
-            val d2 = rem / 10111
-            rem %= 10111
-            if (rem <= 600) {
-                return decodeRemainder("$d1$d2", rem, alphabet)
+            rem1 -= SUFFIX_SIZE
+            val dig2 = rem1 / BUCKET2_SIZE
+            var rem2 = rem1 % BUCKET2_SIZE
+            out.append(dig2)
+            if (rem2 < SUFFIX_SIZE) {
+                return out.append(getSuffix(rem2)).toString()
             }
-            rem -= 601
-            val d3 = rem / 1011
-            rem %= 1011
-            if (rem <= 600) {
-                return decodeRemainder("$d1$d2$d3", rem, alphabet)
+            rem2 -= SUFFIX_SIZE
+            val dig3 = rem2 / BUCKET3_SIZE
+            var rem3 = rem2 % BUCKET3_SIZE
+            out.append(dig3)
+            if (rem3 < SUFFIX_SIZE) {
+                return out.append(getSuffix(rem3)).toString()
             }
-            rem -= 601
-            val d4 = rem / 101
-            rem %= 101
-            if (rem <= 600) {
-                return decodeRemainder("$d1$d2$d3$d4", rem, alphabet)
+            rem3 -= SUFFIX_SIZE
+            val dig4 = rem3 / BUCKET4_SIZE
+            val rem4 = rem3 % BUCKET4_SIZE
+            out.append(dig4)
+            if (rem4 == 0) {
+                return out.toString()
             }
-            rem -= 601
-            val d5 = rem / 10
-            return "N$d1$d2$d3$d4$d5"
+            return out.append(ALLCHARS[rem4 - 1]).toString()
         }
 
         // Country prefix heuristics for international craft
@@ -762,19 +834,6 @@ object AircraftRegistry {
             hex.startsWith("7c") || hex.startsWith("7d") -> "VH-" + hex.takeLast(3).uppercase()
             hex.startsWith("84") || hex.startsWith("85") || hex.startsWith("86") -> "JA" + hex.takeLast(4).uppercase()
             else -> hex.uppercase()
-        }
-    }
-
-    private fun decodeRemainder(prefix: String, rem: Int, alphabet: String): String {
-        return if (rem == 0) {
-            "N$prefix"
-        } else if (rem <= 24) {
-            "N$prefix${alphabet[rem - 1]}"
-        } else {
-            val r = rem - 25
-            val c1 = alphabet[r / 25]
-            val c2 = alphabet[r % 25]
-            "N$prefix$c1$c2"
         }
     }
 

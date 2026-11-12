@@ -964,7 +964,7 @@ fun RadarMapView(
                     }
 
                     if (isDetailMinimized) {
-                        // MINIMIZED STATE: Just the plane tail number & concise stats visible, allowing full radar visibility
+                        // MINIMIZED STATE: Just the aircraft callsign / hex & concise stats visible, allowing full radar visibility
                         Spacer(modifier = Modifier.height(3.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -972,7 +972,7 @@ fun RadarMapView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${pubReg?.registeredOwner ?: target.registeredOperator} · ${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}°",
+                                text = "${target.displayId} · ${target.aircraftTypeName} · ${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}°",
                                 color = AvionicsTextSecondary,
                                 fontSize = 9.5.sp,
                                 fontFamily = FontFamily.Monospace,
@@ -988,25 +988,23 @@ fun RadarMapView(
                             )
                         }
                     } else {
-                        // EXPANDED STATE: Full avionics details, public owner, telemetry grid, and action buttons
-                        // Operator and Registered Owner info
+                        // EXPANDED STATE: Full avionics details, aircraft type, telemetry grid, and action buttons
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = pubReg?.registeredOwner ?: target.registeredOperator,
+                            text = "${target.aircraftTypeName} · HEX #${target.icao24.uppercase()}",
                             color = RadarCyan,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1
                         )
-                        pubReg?.registeredParty?.let { rep ->
-                            Text(
-                                text = "Representative: $rep (${pubReg.registryStateOrProvince ?: "FAA"})",
-                                color = AvionicsTextDim,
-                                fontSize = 9.5.sp,
-                                maxLines = 1
-                            )
-                        }
+                        Text(
+                            text = "${typeInfo.manufacturer} · SQUAWK ${target.squawk} · ADS-B 1090MHz",
+                            color = AvionicsTextDim,
+                            fontSize = 9.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
 
                         // Storm cell proximity warning banner
                         if (isStormRadarEnabled && target.nearestStormName != null) {
@@ -1103,7 +1101,7 @@ fun RadarMapView(
                                 Icon(imageVector = Icons.Default.Info, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} PHOTO/OWNER",
+                                    text = "${if (isHeli) "🚁" else "✈"} ${target.aircraftTypeCode} SPECS & VERIFY",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
@@ -1296,14 +1294,14 @@ fun RadarMapView(
                                             )
                                         }
                                         Text(
-                                            text = pubReg?.registeredOwner ?: target.registeredOperator,
+                                            text = "${target.aircraftTypeName} · HEX #${target.icao24.uppercase()}",
                                             color = RadarCyan,
                                             fontSize = 9.5.sp,
                                             maxLines = 1,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
-                                            text = "${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}° · ${target.aircraftTypeCode}",
+                                            text = "${target.formattedAltitude} · ${target.velocityKts} kts · ${target.headingDeg.toInt()}° · SQWK ${target.squawk}",
                                             color = RadarGreen,
                                             fontSize = 9.sp,
                                             fontFamily = FontFamily.Monospace
@@ -1317,7 +1315,7 @@ fun RadarMapView(
                                             contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
                                         ) {
                                             Text(
-                                                text = "PHOTO / SPECS / FLIGHT PLAN",
+                                                text = "SPECS & GOOGLE VERIFY",
                                                 fontSize = 8.5.sp,
                                                 color = RadarGreen,
                                                 fontWeight = FontWeight.Bold,

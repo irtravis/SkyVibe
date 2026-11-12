@@ -557,12 +557,38 @@ class SkyWatchRepository(private val context: Context) {
         return when {
             cs.startsWith("ARMY") || cs.startsWith("HAWK") -> AircraftRegistry.getAircraftType("UH60")
             cs.startsWith("EJA") || cs.startsWith("LXJ") || cs.startsWith("VJT") || cs.startsWith("XOJ") || tail.endsWith("QS") -> AircraftRegistry.getAircraftType("GLF6")
+            cs.startsWith("FFT") || cs.startsWith("F9") || tail.endsWith("FR") || op.contains("FRONTIER") -> AircraftRegistry.getAircraftType("A321")
+            // Regional jet operators: Envoy, Republic, SkyWest -> E170; Endeavor, PSA, Piedmont -> CRJ9
+            cs.startsWith("ENY") || cs.startsWith("RPA") || cs.startsWith("SKW") || op.contains("ENVOY") || op.contains("REPUBLIC") -> AircraftRegistry.getAircraftType("E170")
+            cs.startsWith("EDV") || cs.startsWith("JIA") || cs.startsWith("PDT") || op.contains("ENDEAVOR") || op.contains("PSA") || op.contains("PIEDMONT") -> AircraftRegistry.getAircraftType("CRJ9")
+            // Airbus-predominant carriers: Allegiant, Spirit, JetBlue, Lufthansa, Air France (NOT American Airlines!)
+            cs.startsWith("AAY") || cs.startsWith("NKS") || cs.startsWith("JBU") || cs.startsWith("DLH") || cs.startsWith("AFR") || op.contains("ALLEGIANT") || op.contains("SPIRIT") || op.contains("JETBLUE") -> AircraftRegistry.getAircraftType("A320")
+            // Boeing mainline carriers: American Airlines, Delta, United, Southwest, WestJet, British Airways
+            cs.startsWith("AAL") || cs.startsWith("DAL") || cs.startsWith("UAL") || cs.startsWith("SWA") || cs.startsWith("WJA") || cs.startsWith("BAW") || op.contains("AMERICAN") || op.contains("DELTA") || op.contains("UNITED") || op.contains("SOUTHWEST") -> {
+                if (altitudeFt > 36000 && (cs.startsWith("UAL") || cs.startsWith("DAL") || cs.startsWith("BAW") || cs.startsWith("AAL"))) {
+                    AircraftRegistry.getAircraftType("B77W")
+                } else {
+                    AircraftRegistry.getAircraftType("B738")
+                }
+            }
             altitudeFt > 36000 -> AircraftRegistry.getAircraftType("B77W")
-            altitudeFt < 10000 && (cs.startsWith("N") || tail.startsWith("N")) && velocityKts in 70..160 -> AircraftRegistry.getAircraftType("C172")
+            altitudeFt in 10000..28000 && (cs.startsWith("N") || tail.startsWith("N")) && velocityKts in 180..320 && !isCommercialAirline(cs, op) -> AircraftRegistry.getAircraftType("BE20")
+            altitudeFt < 10000 && (cs.startsWith("N") || tail.startsWith("N")) && velocityKts in 70..160 && !isCommercialAirline(cs, op) -> AircraftRegistry.getAircraftType("C172")
             cs.startsWith("RCH") || cs.startsWith("VIPER") -> AircraftRegistry.getAircraftType("F16")
-            cs.startsWith("DLH") || cs.startsWith("AFR") || cs.startsWith("AAL") -> AircraftRegistry.getAircraftType("A320")
             else -> AircraftRegistry.getAircraftType("B738")
         }
+    }
+
+    private fun isCommercialAirline(callsign: String, operator: String): Boolean {
+        val cs = callsign.uppercase()
+        val op = operator.uppercase()
+        return cs.startsWith("AAL") || cs.startsWith("DAL") || cs.startsWith("UAL") ||
+                cs.startsWith("SWA") || cs.startsWith("FFT") || cs.startsWith("AAY") ||
+                cs.startsWith("NKS") || cs.startsWith("JBU") || cs.startsWith("ENY") ||
+                cs.startsWith("EDV") || cs.startsWith("JIA") || cs.startsWith("RPA") ||
+                cs.startsWith("SKW") || cs.startsWith("PDT") || cs.startsWith("BAW") ||
+                cs.startsWith("WJA") || cs.startsWith("FDX") || cs.startsWith("UPS") ||
+                op.contains("AIRLINES") || op.contains("AIRWAYS") || op.contains("EXPRESS")
     }
 
     private fun initSimulatedFleet(center: RadarCenter) {
@@ -570,7 +596,7 @@ class SkyWatchRepository(private val context: Context) {
         val templates = listOf(
             TargetTemplate("A3568F", "DAL1420", "N356DN", "Delta Air Lines", "B738", 34000, 480, 245f, 12.5),
             TargetTemplate("A835AF", "UAL452", "N856UA", "United Airlines", "B77W", 37000, 510, 85f, 18.2),
-            TargetTemplate("A1249C", "AAL819", "N124AA", "American Airlines", "A320", 28000, 440, 190f, 7.8),
+            TargetTemplate("A1249C", "AAL819", "N124AA", "American Airlines", "B738", 28000, 440, 190f, 7.8),
             TargetTemplate("A562B1", "SWA331", "N562WN", "Southwest Airlines", "B738", 22000, 410, 310f, 25.4),
             TargetTemplate("A099E3", "EJA650", "N990QS", "NetJets Aviation", "GLF6", 45000, 520, 140f, 14.1),
             TargetTemplate("A77890", "FDX1124", "N778FD", "FedEx Express", "B77W", 31000, 490, 45f, 32.0),

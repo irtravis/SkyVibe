@@ -155,7 +155,7 @@ fun AircraftListView(
                     .testTag("search_aircraft_input"),
                 placeholder = {
                     Text(
-                        "Search tail #, callsign, or airline...",
+                        "Search callsign, ICAO hex, or aircraft type...",
                         color = AvionicsTextDim,
                         fontSize = 13.sp,
                         fontFamily = FontFamily.Monospace
@@ -330,7 +330,7 @@ fun AircraftListView(
                                     Spacer(modifier = Modifier.width(6.dp))
 
                                     Text(
-                                        text = aircraft.callsign.ifBlank { aircraft.tailNumber },
+                                        text = aircraft.displayId,
                                         color = AvionicsTextPrimary,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
@@ -338,9 +338,9 @@ fun AircraftListView(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "• ${aircraft.tailNumber}",
+                                        text = "• #${aircraft.icao24.uppercase()}",
                                         color = if (aircraft.isHelicopter) RadarCyan else RadarGreen,
-                                        fontSize = 13.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.Monospace
                                     )
@@ -376,61 +376,26 @@ fun AircraftListView(
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            // Public Registered Owner & Representative / Agent Display
-                            val regOwner = aircraft.publicRegistry?.registeredOwner ?: aircraft.registeredOperator
-                            val regParty = aircraft.publicRegistry?.registeredParty
-                            val regState = aircraft.publicRegistry?.registryStateOrProvince
-
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "🏢 $regOwner",
-                                        color = AvionicsTextPrimary,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        modifier = Modifier.weight(1f, fill = false)
-                                    )
-
-                                    Spacer(modifier = Modifier.width(4.dp))
-
-                                    Text(
-                                        text = "HEX: ${aircraft.icao24.uppercase()}",
-                                        color = AvionicsTextDim,
-                                        fontSize = 10.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-
-                                if (!regParty.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "👤 Rep/Agent: $regParty",
-                                            color = RadarCyan,
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-
-                                        if (regState != null) {
-                                            Text(
-                                                text = "📍 $regState",
-                                                color = AvionicsTextDim,
-                                                fontSize = 10.sp
-                                            )
-                                        }
-                                    }
-                                }
+                            // Aircraft Model & Squawk
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${typeInfo.modelName} · ${typeInfo.category}",
+                                    color = RadarCyan,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Text(
+                                    text = "SQWK ${aircraft.squawk}",
+                                    color = AvionicsTextDim,
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
                             }
 
                             // Storm Weather Cell Proximity Advisory

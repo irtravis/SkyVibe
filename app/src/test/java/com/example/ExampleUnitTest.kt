@@ -30,6 +30,15 @@ class ExampleUnitTest {
 
         val tailCanada = AircraftRegistry.convertIcao24ToTailNumber("c012ab")
         assertTrue(tailCanada.startsWith("C-"))
+
+        // Exact FAA Mode-S algorithm test vectors
+        assertEquals("N1", AircraftRegistry.convertIcao24ToTailNumber("a00001"))
+        assertEquals("N1A", AircraftRegistry.convertIcao24ToTailNumber("a00002"))
+        assertEquals("N1AA", AircraftRegistry.convertIcao24ToTailNumber("a00003"))
+        assertEquals("N12345", AircraftRegistry.convertIcao24ToTailNumber("a061d9"))
+        assertEquals("N86QU", AircraftRegistry.convertIcao24ToTailNumber("abcdef"))
+        // Frontier Airlines Airbus A321 (Flight F9 4018) Mode-S hex
+        assertEquals("N705FR", AircraftRegistry.convertIcao24ToTailNumber("a967ae"))
     }
 
     @Test
@@ -290,5 +299,212 @@ class ExampleUnitTest {
         assertTrue(!plan.destinationCity.contains("Asheville"))
         assertTrue(plan.flightRules.contains("PUBLIC SAFETY") || plan.flightRules.contains("MEDEVAC"))
     }
+
+    @Test
+    fun testFrontierFlightF94018Resolution() {
+        // Hex a967ae must decode to N705FR (Frontier Airlines Airbus A321)
+        val tail = AircraftRegistry.convertIcao24ToTailNumber("a967ae")
+        assertEquals("N705FR", tail)
+
+        // Operator resolution
+        val op = AircraftRegistry.resolveRegisteredOperator("FFT4018", tail, "a967ae")
+        assertTrue(op.contains("Frontier", ignoreCase = true))
+
+        // Public registry resolution: Must be Frontier Airlines, NOT a fictitious individual owner
+        val reg = AircraftRegistry.resolvePublicRegistry(tail, "FFT4018", "a967ae", op)
+        assertEquals("FRONTIER AIRLINES INC", reg.registeredOwner)
+        assertTrue(!reg.registeredOwner.contains("BRADLEY", ignoreCase = true))
+
+        // Aircraft model validation: must be an airliner (A320/A321 family), NOT a single-engine Rotax or C172
+        val frontierCraft = com.example.model.Aircraft(
+            icao24 = "a967ae",
+            callsign = "FFT4018",
+            tailNumber = tail,
+            registeredOperator = op,
+            aircraftTypeCode = "A320",
+            aircraftTypeName = "Airbus A321neo",
+            latitude = 36.4,
+            longitude = -82.4,
+            altitudeFt = 36000,
+            velocityKts = 450,
+            headingDeg = 15f,
+            verticalRateFpm = 0,
+            squawk = "2341",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis(),
+            craftCategory = com.example.model.CraftCategory.JET,
+            publicRegistry = reg
+        )
+        assertEquals(com.example.model.CraftCategory.JET, frontierCraft.craftCategory)
+
+        // Flight plan validation: Must be Orlando (KMCO) to Cleveland (KCLE), NOT Abingdon to Asheville!
+        val plan = com.example.model.Aircraft.generateDefaultFlightPlan(frontierCraft)
+        assertEquals("KMCO", plan.originIcao)
+        assertTrue(plan.originCity.contains("Orlando"))
+        assertEquals("KCLE", plan.destinationIcao)
+        assertTrue(plan.destinationCity.contains("Cleveland"))
+        assertTrue(!plan.originIcao.equals("KVJI", ignoreCase = true))
+        assertTrue(!plan.destinationIcao.equals("KAVL", ignoreCase = true))
+
+        // Delay status and gate details requested by user
+        assertEquals("Arriving late / Delayed", plan.flightStatus)
+        assertTrue(plan.delayReason?.contains("F9 4018") == true)
+        assertEquals("Terminal A · Gate 15", plan.originTerminalGate)
+        assertEquals("Terminal A · Gate A10", plan.destinationTerminalGate)
+        assertEquals("8:30 PM", plan.scheduledDepartureTime)
+        assertEquals("9:06 PM (Delayed)", plan.actualDepartureTime)
+        assertEquals("11:06 PM", plan.scheduledArrivalTime)
+        assertEquals("11:35 PM (Delayed)", plan.estimatedArrivalTime)
+    }
+
+    @Test
+    fun testEliminationOfFictitiousOwners() {
+        // Any general US aircraft without explicit airline operator should be identified as FAA US Civil Registry
+        val reg = AircraftRegistry.resolvePublicRegistry("N12345", "N12345", "a061d9", "")
+        assertEquals("FAA US CIVIL AIRCRAFT REGISTRY", reg.registeredOwner)
+        assertTrue(reg.registeredParty.contains("N12345"))
+        assertTrue(!reg.registeredOwner.contains("BRADLEY", ignoreCase = true))
+        assertTrue(!reg.registeredOwner.contains("WILMINGTON", ignoreCase = true))
+    }
+
+    @Test
+    fun testAmericanAirlinesFlight1081RouteAndType() {
+        // AAL1081 must be Boeing 737-800, NOT Airbus A320
+        val aalCraft = com.example.model.Aircraft(
+            icao24 = "a95123",
+            callsign = "AAL1081",
+            tailNumber = "N951AA",
+            registeredOperator = "American Airlines",
+            aircraftTypeCode = "B738",
+            aircraftTypeName = "Boeing 737-800",
+            latitude = 36.3619,
+            longitude = -82.4043,
+            altitudeFt = 34000,
+            velocityKts = 421,
+            headingDeg = 315f, // Heading Northwest towards Indiana
+            verticalRateFpm = 0,
+            squawk = "2566",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis()
+        )
+
+        // Route must be Charlotte (KCLT) to Indianapolis (KIND), NOT Dallas (KDFW)
+        val plan = com.example.data.FlightRouteDatabase.resolveFlightPlan(aalCraft)
+        assertEquals("KCLT", plan.originIcao)
+        assertTrue(plan.originCity.contains("Charlotte"))
+        assertEquals("KIND", plan.destinationIcao)
+        assertTrue(plan.destinationCity.contains("Indianapolis") || plan.destinationName.contains("Indianapolis"))
+        assertTrue(!plan.destinationIcao.equals("KDFW", ignoreCase = true))
+        assertTrue(!plan.destinationCity.contains("Dallas"))
+
+        // Airway must reflect Indianapolis corridor
+        assertTrue(plan.routeAirway.contains("KIND") || plan.routeAirway.contains("LINNC"))
+    }
+
+    @Test
+    fun testEnvoyAirFlight4246RouteAndType() {
+        // Mode-S hex aaa342 must decode to authentic Envoy Air N785BR (Embraer E170), NOT Beechcraft
+        val tail = AircraftRegistry.convertIcao24ToTailNumber("aaa342")
+        assertEquals("N785BR", tail)
+
+        // Operator resolution
+        val op = AircraftRegistry.resolveRegisteredOperator("ENY4246", tail, "aaa342")
+        assertEquals("Envoy Air", op)
+
+        // Public registry resolution
+        val reg = AircraftRegistry.resolvePublicRegistry(tail, "ENY4246", "aaa342", op)
+        assertEquals("ENVOY AIR INC", reg.registeredOwner)
+
+        val enyCraft = com.example.model.Aircraft(
+            icao24 = "aaa342",
+            callsign = "ENY4246",
+            tailNumber = tail,
+            registeredOperator = op,
+            aircraftTypeCode = "E170",
+            aircraftTypeName = "Embraer ERJ-170 / E175",
+            latitude = 37.02,
+            longitude = -83.05,
+            altitudeFt = 14250,
+            velocityKts = 390,
+            headingDeg = 135f, // Descending Southeast towards KTRI
+            verticalRateFpm = -1200,
+            squawk = "4125",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis(),
+            publicRegistry = reg
+        )
+
+        // Route must be Chicago O'Hare (KORD) to Tri-Cities (KTRI), NOT Abingdon to Asheville!
+        val plan = com.example.data.FlightRouteDatabase.resolveFlightPlan(enyCraft)
+        assertEquals("KORD", plan.originIcao)
+        assertTrue(plan.originCity.contains("Chicago"))
+        assertEquals("KTRI", plan.destinationIcao)
+        assertTrue(plan.destinationName.contains("Tri-Cities") || plan.destinationCity.contains("Blountville"))
+        assertTrue(!plan.originIcao.equals("KVJI", ignoreCase = true))
+        assertTrue(!plan.destinationIcao.equals("KAVL", ignoreCase = true))
+    }
+
+    @Test
+    fun testDynamicHeadingRoutingAmericanAirlines() {
+        // Northwest track departing Charlotte must head towards Midwest/Indiana (KIND), NOT DFW
+        val nwCraft = com.example.model.Aircraft(
+            icao24 = "a12345",
+            callsign = "AAL492",
+            tailNumber = "N123AA",
+            registeredOperator = "American Airlines",
+            aircraftTypeCode = "B738",
+            aircraftTypeName = "Boeing 737-800",
+            latitude = 36.4,
+            longitude = -82.4,
+            altitudeFt = 33000,
+            velocityKts = 430,
+            headingDeg = 320f, // Northwest
+            verticalRateFpm = 0,
+            squawk = "1200",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis()
+        )
+
+        val planNw = com.example.data.FlightRouteDatabase.resolveFlightPlan(nwCraft)
+        assertEquals("KCLT", planNw.originIcao)
+        assertEquals("KIND", planNw.destinationIcao)
+        assertTrue(!planNw.destinationIcao.equals("KDFW", ignoreCase = true))
+
+        // West/Southwest track departing Charlotte heading towards Texas
+        val swCraft = nwCraft.copy(headingDeg = 245f)
+        val planSw = com.example.data.FlightRouteDatabase.resolveFlightPlan(swCraft)
+        assertEquals("KCLT", planSw.originIcao)
+        assertEquals("KDFW", planSw.destinationIcao)
+    }
+
+    @Test
+    fun testDisplayIdWithoutTailNumber() {
+        val planeWithCallsign = com.example.model.Aircraft(
+            icao24 = "a95123",
+            callsign = "AAL1081",
+            tailNumber = "N951AA",
+            registeredOperator = "American Airlines",
+            aircraftTypeCode = "B738",
+            aircraftTypeName = "Boeing 737-800",
+            latitude = 36.36,
+            longitude = -82.40,
+            altitudeFt = 34000,
+            velocityKts = 421,
+            headingDeg = 315f,
+            verticalRateFpm = 0,
+            squawk = "2566",
+            onGround = false,
+            lastContactTimestamp = System.currentTimeMillis()
+        )
+        // Must show pure callsign, never appending tail numbers in parentheses
+        assertEquals("AAL1081", planeWithCallsign.displayId)
+        assertTrue(!planeWithCallsign.displayId.contains("("))
+        assertTrue(!planeWithCallsign.displayId.contains("N951AA"))
+
+        val planeBlankCallsign = planeWithCallsign.copy(callsign = "")
+        assertEquals("HEX #A95123", planeBlankCallsign.displayId)
+    }
 }
+
+
 
