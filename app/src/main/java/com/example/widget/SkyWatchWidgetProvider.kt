@@ -36,16 +36,10 @@ class SkyWatchWidgetProvider : AppWidgetProvider() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        try {
-            SkyWatchRepository.initWidgetDefaultCache()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed onEnabled cache init", e)
-        }
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         try {
-            SkyWatchRepository.initWidgetDefaultCache()
             for (appWidgetId in appWidgetIds) {
                 updateAppWidget(context, appWidgetManager, appWidgetId)
             }

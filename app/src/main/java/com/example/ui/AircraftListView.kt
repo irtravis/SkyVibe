@@ -76,6 +76,7 @@ fun AircraftListView(
     aircraftList: List<Aircraft>,
     telemetryFeed: List<String>,
     isPaused: Boolean,
+    feedStatus: String = "SCANNING LIVE 1090MHz...",
     onViewTypeDetails: (AircraftTypeInfo, Aircraft?) -> Unit,
     onToggleWatchlist: (String) -> Unit,
     onAircraftSelected: (Aircraft) -> Unit
@@ -266,13 +267,21 @@ fun AircraftListView(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (isPaused) "ADS-B Scanner is Paused" else "No aircraft found matching filter",
+                        text = when {
+                            isPaused -> "ADS-B Scanner is Paused"
+                            aircraftList.isEmpty() -> feedStatus
+                            else -> "No aircraft found matching filter"
+                        },
                         color = AvionicsTextSecondary,
                         fontSize = 14.sp,
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        text = if (isPaused) "Tap 'RESUME' to restart live transponder tracking" else "Try clearing search filters or broadening radar radius",
+                        text = when {
+                            isPaused -> "Tap 'RESUME' to restart live transponder tracking"
+                            aircraftList.isEmpty() -> "Try expanding the radar radius or selecting a busier hub airport"
+                            else -> "Try clearing search filters or broadening radar radius"
+                        },
                         color = AvionicsTextDim,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
@@ -286,7 +295,11 @@ fun AircraftListView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filteredList, key = { it.icao24 }) { aircraft ->
-                    val typeInfo = AircraftRegistry.getAircraftType(aircraft.aircraftTypeCode)
+                    val typeInfo = AircraftRegistry.getAircraftType(
+                        code = aircraft.aircraftTypeCode,
+                        descriptionHint = aircraft.aircraftTypeName,
+                        isHelicopterHint = aircraft.isHelicopter
+                    )
 
                     Card(
                         modifier = Modifier

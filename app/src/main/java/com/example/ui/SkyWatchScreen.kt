@@ -87,6 +87,7 @@ fun SkyWatchScreen(
     val context = LocalContext.current
     val aircraftList by viewModel.aircraftList.collectAsState()
     val isPaused by viewModel.isPaused.collectAsState()
+    val feedStatus by viewModel.feedStatus.collectAsState()
     val radarCenter by viewModel.radarCenter.collectAsState()
     val scanRadiusNm by viewModel.scanRadiusNm.collectAsState()
     val telemetryFeed by viewModel.telemetryFeed.collectAsState()
@@ -238,10 +239,11 @@ fun SkyWatchScreen(
                             }
 
                             Text(
-                                text = "${aircraftList.size} targets · ${scanRadiusNm.toInt()} NM · ${mapLayerType.displayName} VIEW",
-                                color = AvionicsTextSecondary,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                text = "$feedStatus · ${scanRadiusNm.toInt()} NM · ${mapLayerType.displayName}",
+                                color = if (feedStatus.startsWith("SIGNAL LOST")) RadarAmber else AvionicsTextSecondary,
+                                fontSize = 9.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1
                             )
                         }
                     }
@@ -529,6 +531,7 @@ fun SkyWatchScreen(
                             radarCenter = radarCenter,
                             scanRadiusNm = scanRadiusNm,
                             isPaused = isPaused,
+                            feedStatus = feedStatus,
                             mapLayerType = mapLayerType,
                             stormCells = stormCells,
                             isStormRadarEnabled = isStormRadarEnabled,
@@ -559,6 +562,7 @@ fun SkyWatchScreen(
                                     radarCenter = radarCenter,
                                     scanRadiusNm = scanRadiusNm,
                                     isPaused = isPaused,
+                                    feedStatus = feedStatus,
                                     mapLayerType = mapLayerType,
                                 stormCells = stormCells,
                                 isStormRadarEnabled = isStormRadarEnabled,
@@ -621,6 +625,7 @@ fun SkyWatchScreen(
                                         aircraftList = aircraftList,
                                         telemetryFeed = telemetryFeed,
                                         isPaused = isPaused,
+                                        feedStatus = feedStatus,
                                         onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                         onToggleWatchlist = { viewModel.toggleWatchlist(it) },
                                         onAircraftSelected = { viewModel.selectAircraft(it) }
@@ -708,6 +713,7 @@ fun SkyWatchScreen(
                                     radarCenter = radarCenter,
                                     scanRadiusNm = scanRadiusNm,
                                     isPaused = isPaused,
+                                    feedStatus = feedStatus,
                                     mapLayerType = mapLayerType,
                                     stormCells = stormCells,
                                     isStormRadarEnabled = isStormRadarEnabled,
@@ -727,6 +733,7 @@ fun SkyWatchScreen(
                                     aircraftList = aircraftList,
                                     telemetryFeed = telemetryFeed,
                                     isPaused = isPaused,
+                                    feedStatus = feedStatus,
                                     onViewTypeDetails = { typeInfo, ac -> viewModel.showTypeDetails(typeInfo, ac) },
                                     onToggleWatchlist = { viewModel.toggleWatchlist(it) },
                                     onAircraftSelected = {

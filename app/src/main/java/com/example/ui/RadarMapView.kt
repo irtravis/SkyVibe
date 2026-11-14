@@ -135,6 +135,7 @@ fun RadarMapView(
     radarCenter: RadarCenter,
     scanRadiusNm: Double,
     isPaused: Boolean,
+    feedStatus: String = "",
     mapLayerType: MapLayerType = MapLayerType.RADAR,
     stormCells: List<StormCell> = emptyList(),
     isStormRadarEnabled: Boolean = true,
@@ -466,6 +467,26 @@ fun RadarMapView(
                         mapRotationDeg = animatedRotationDeg
                     )
                 }
+            }
+        }
+
+        // Honest empty/offline live feed indicator when no airborne targets are in range
+        if (aircraftList.isEmpty() && !isMaximized) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 18.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xD8040B07))
+                    .border(1.dp, OledCardBorder, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = feedStatus.ifBlank { "NO AIRBORNE ADS-B TARGETS IN ${scanRadiusNm.toInt()} NM" },
+                    color = if (feedStatus.startsWith("SIGNAL LOST")) RadarAmber else AvionicsTextSecondary,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
             }
         }
 
@@ -811,9 +832,13 @@ fun RadarMapView(
         // Can be slid down so just the plane tail number is visible, allowing the radar screen to be seen while plane is still selected
         liveSelectedAircraft?.let { target ->
             val liveMeta = AircraftDatabaseService.getCachedOrFleet(target.tailNumber, target.icao24, target.registeredOperator)
-            val effectiveTypeCode = liveMeta?.icaoTypeCode ?: target.aircraftTypeCode
-            val effectiveModelName = liveMeta?.model ?: target.aircraftTypeName
-            val typeInfo = AircraftRegistry.getAircraftType(effectiveTypeCode)
+            val effectiveTypeCode = liveMeta?.icaoTypeCode?.ifBlank { null } ?: target.aircraftTypeCode
+            val effectiveModelName = liveMeta?.model?.ifBlank { null } ?: target.aircraftTypeName
+            val typeInfo = AircraftRegistry.getAircraftType(
+                code = effectiveTypeCode,
+                descriptionHint = effectiveModelName,
+                isHelicopterHint = target.isHelicopter || liveMeta?.isHelicopter == true
+            )
             val isHeli = target.isHelicopter || typeInfo.isHelicopter || liveMeta?.isHelicopter == true
             val pubReg = target.publicRegistry
 
@@ -1267,7 +1292,11 @@ fun RadarMapView(
                             // Selected Target Info (if any)
                             if (liveSelectedAircraft != null) {
                                 val target = liveSelectedAircraft
-                                val typeInfo = AircraftRegistry.getAircraftType(target.aircraftTypeCode)
+                                val typeInfo = AircraftRegistry.getAircraftType(
+                                    code = target.aircraftTypeCode,
+                                    descriptionHint = target.aircraftTypeName,
+                                    isHelicopterHint = target.isHelicopter
+                                )
                                 val isHeli = target.isHelicopter || typeInfo.isHelicopter
                                 val pubReg = target.publicRegistry
 

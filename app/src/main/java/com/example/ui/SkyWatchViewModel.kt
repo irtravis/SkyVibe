@@ -29,6 +29,7 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
 
     val aircraftList: StateFlow<List<Aircraft>> = repository.aircraftList
     val isPaused: StateFlow<Boolean> = repository.isPaused
+    val feedStatus: StateFlow<String> = repository.feedStatus
     val radarCenter: StateFlow<RadarCenter> = repository.radarCenter
     val scanRadiusNm: StateFlow<Double> = repository.scanRadiusNm
     val telemetryFeed: StateFlow<List<String>> = repository.telemetryFeed
@@ -58,7 +59,7 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     val trackedTails: StateFlow<List<String>> = flightTrackDao.getDistinctTrackedTails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _selectedTailForHistory = MutableStateFlow<String?>("N856UA")
+    private val _selectedTailForHistory = MutableStateFlow<String?>(null)
     val selectedTailForHistory: StateFlow<String?> = _selectedTailForHistory.asStateFlow()
 
     fun selectTailForHistory(tail: String?) {
@@ -84,31 +85,35 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     val availableCastDevices: StateFlow<List<com.example.model.CastDevice>> = castDiscoveryManager.availableDevices
     val isScanningCast: StateFlow<Boolean> = castDiscoveryManager.isScanning
 
-    private val _selectedTailNumber = MutableStateFlow<String?>(null)
-    private val _fallbackSelectedAircraft = MutableStateFlow<Aircraft?>(null)
+    private val _selectedIcaoOrTail = MutableStateFlow<String?>(null)
 
     val selectedAircraft: StateFlow<Aircraft?> = combine(
         aircraftList,
-        _selectedTailNumber,
-        _fallbackSelectedAircraft
-    ) { list, tail, fallback ->
-        if (tail == null) null
-        else list.find { it.tailNumber.equals(tail, ignoreCase = true) || it.icao24.equals(tail, ignoreCase = true) } ?: fallback
+        _selectedIcaoOrTail
+    ) { list, key ->
+        if (key == null) null
+        else list.find {
+            it.icao24.equals(key, ignoreCase = true) ||
+            it.tailNumber.equals(key, ignoreCase = true)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _selectedTypeForInfo = MutableStateFlow<AircraftTypeInfo?>(null)
     val selectedTypeForInfo: StateFlow<AircraftTypeInfo?> = _selectedTypeForInfo.asStateFlow()
 
-    private val _selectedTailForInfo = MutableStateFlow<String?>(null)
+    private val _selectedKeyForInfo = MutableStateFlow<String?>(null)
     private val _fallbackAircraftForInfo = MutableStateFlow<Aircraft?>(null)
 
     val selectedAircraftForInfo: StateFlow<Aircraft?> = combine(
         aircraftList,
-        _selectedTailForInfo,
+        _selectedKeyForInfo,
         _fallbackAircraftForInfo
-    ) { list, tail, fallback ->
-        if (tail == null) null
-        else list.find { it.tailNumber.equals(tail, ignoreCase = true) || it.icao24.equals(tail, ignoreCase = true) } ?: fallback
+    ) { list, key, fallback ->
+        if (key == null) null
+        else list.find {
+            it.icao24.equals(key, ignoreCase = true) ||
+            it.tailNumber.equals(key, ignoreCase = true)
+        } ?: fallback?.takeIf { System.currentTimeMillis() - it.lastContactTimestamp <= 45_000L }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     private val _isLocatingGps = MutableStateFlow(false)
@@ -209,24 +214,22 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun selectAircraft(aircraft: Aircraft?) {
-        _selectedTailNumber.value = aircraft?.tailNumber ?: aircraft?.icao24
-        _fallbackSelectedAircraft.value = aircraft
+        _selectedIcaoOrTail.value = aircraft?.icao24 ?: aircraft?.tailNumber
     }
 
     fun clearSelectedAircraft() {
-        _selectedTailNumber.value = null
-        _fallbackSelectedAircraft.value = null
+        _selectedIcaoOrTail.value = null
     }
 
     fun showTypeDetails(typeInfo: AircraftTypeInfo, aircraft: Aircraft? = null) {
         _selectedTypeForInfo.value = typeInfo
-        _selectedTailForInfo.value = aircraft?.tailNumber ?: aircraft?.icao24
+        _selectedKeyForInfo.value = aircraft?.icao24 ?: aircraft?.tailNumber
         _fallbackAircraftForInfo.value = aircraft
     }
 
     fun dismissTypeDetails() {
         _selectedTypeForInfo.value = null
-        _selectedTailForInfo.value = null
+        _selectedKeyForInfo.value = null
         _fallbackAircraftForInfo.value = null
     }
 
@@ -285,42 +288,24 @@ class SkyWatchViewModel(application: Application) : AndroidViewModel(application
 
     fun triggerTestAlarm() {
         viewModelScope.launch {
-            val sampleAircraft = aircraftList.value.firstOrNull() ?: Aircraft(
-                icao24 = "A835AF",
-                callsign = "UAL452",
-                tailNumber = "N856UA",
-                registeredOperator = "United Airlines",
-                aircraftTypeCode = "B77W",
-                aircraftTypeName = "Boeing 777-300ER",
-                latitude = radarCenter.value.latitude + 0.05,
-                longitude = radarCenter.value.longitude + 0.05,
-                altitudeFt = 24000,
-                velocityKts = 480,
-                headingDeg = 245f,
-                verticalRateFpm = -500,
-                squawk = "4721",
-                onGround = false,
-                lastContactTimestamp = System.currentTimeMillis(),
-                distanceNm = 8.4,
-                isWatchlisted = true
-            )
+            val liveTarget = aircraftList.value.firstOrNull() ?: return@launch
 
             val alert = AlertLogEntity(
-                tailNumber = sampleAircraft.tailNumber,
-                callsign = sampleAircraft.callsign,
-                registeredOperator = sampleAircraft.registeredOperator,
-                aircraftType = sampleAircraft.aircraftTypeName,
-                distanceNm = sampleAircraft.distanceNm,
-                altitudeFt = sampleAircraft.altitudeFt,
+                tailNumber = liveTarget.tailNumber,
+                callsign = liveTarget.callsign,
+                registeredOperator = liveTarget.registeredOperator,
+                aircraftType = liveTarget.aircraftTypeName,
+                distanceNm = liveTarget.distanceNm,
+                altitudeFt = liveTarget.altitudeFt,
                 timestamp = System.currentTimeMillis(),
                 radarLocationName = radarCenter.value.name,
-                latitude = sampleAircraft.latitude,
-                longitude = sampleAircraft.longitude
+                latitude = liveTarget.latitude,
+                longitude = liveTarget.longitude
             )
             alertLogDao.insert(alert)
 
             com.example.notification.AlertNotificationManager(getApplication())
-                .sendWatchlistBreachAlert(sampleAircraft, 25.0, radarCenter.value.name)
+                .sendWatchlistBreachAlert(liveTarget, scanRadiusNm.value, radarCenter.value.name)
         }
     }
 }

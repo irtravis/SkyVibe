@@ -27,16 +27,10 @@ class AircraftListRemoteViewsFactory(private val context: Context) : RemoteViews
     }
 
     override fun onCreate() {
-        if (SkyWatchRepository.cachedAircraftForWidget.isEmpty()) {
-            SkyWatchRepository.initWidgetDefaultCache()
-        }
         items = SkyWatchRepository.cachedAircraftForWidget
     }
 
     override fun onDataSetChanged() {
-        if (SkyWatchRepository.cachedAircraftForWidget.isEmpty()) {
-            SkyWatchRepository.initWidgetDefaultCache()
-        }
         items = SkyWatchRepository.cachedAircraftForWidget
     }
 

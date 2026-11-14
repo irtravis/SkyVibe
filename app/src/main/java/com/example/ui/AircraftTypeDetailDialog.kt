@@ -59,9 +59,12 @@ import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.AircraftDatabaseService
 import com.example.data.AircraftMetadata
+import com.example.data.AircraftRegistry
 import com.example.data.FlightAwareRegistry
+import com.example.data.FlightRouteDatabase
 import com.example.model.Aircraft
 import com.example.model.AircraftTypeInfo
+import com.example.model.FlightPlanData
 import com.example.ui.theme.AvionicsTextDim
 import com.example.ui.theme.AvionicsTextPrimary
 import com.example.ui.theme.AvionicsTextSecondary
@@ -92,52 +95,66 @@ fun AircraftTypeDetailDialog(
     val initialMeta = remember(rawTail, rawHex) {
         AircraftDatabaseService.getCachedOrFleet(rawTail, rawHex, rawOp)
     }
-    var liveMetadata by remember(rawTail, rawHex) { mutableStateOf(initialMeta) }
+    val cleanCallsign = aircraft?.callsign?.trim()?.replace(" ", "") ?: ""
+    val icaoHex = aircraft?.icao24?.trim()?.uppercase() ?: ""
 
-    // 2. Query live global aircraft registries (ADSBDB & HexDB) asynchronously
-    LaunchedEffect(rawTail, rawHex) {
+    var liveMetadata by remember(rawTail, rawHex) { mutableStateOf(initialMeta) }
+    var liveRoute by remember(cleanCallsign) {
+        mutableStateOf<FlightPlanData?>(
+            aircraft?.resolvedFlightPlan
+                ?: if (cleanCallsign.length >= 4) FlightRouteDatabase.getCachedRoute(cleanCallsign) else null
+        )
+    }
+
+    // 2. Query live global aircraft registries (ADSBDB & HexDB) + live flight route asynchronously
+    LaunchedEffect(rawTail, rawHex, cleanCallsign) {
         if (rawTail.isNotBlank() || rawHex.isNotBlank()) {
             val fetched = AircraftDatabaseService.lookupAircraft(rawTail, rawHex, rawOp)
             if (fetched != null) {
                 liveMetadata = fetched
             }
         }
+        if (cleanCallsign.length >= 4 && liveRoute == null) {
+            val fetchedRoute = FlightRouteDatabase.resolveFlightPlanAsync(cleanCallsign)
+            if (fetchedRoute != null) {
+                liveRoute = fetchedRoute
+            }
+        }
     }
 
     // Effective, real-world verified model & airframe parameters
-    val effectiveModel = liveMetadata?.model ?: flightAwareInfo?.airframeModel ?: typeInfo.modelName
-    val effectiveManufacturer = liveMetadata?.manufacturer ?: typeInfo.manufacturer
-    val effectiveTypeCode = liveMetadata?.icaoTypeCode ?: flightAwareInfo?.aircraftTypeCode ?: typeInfo.typeCode
-    val effectiveOperator = liveMetadata?.operator?.ifBlank { null } ?: flightAwareInfo?.operatorName ?: rawOp.ifBlank { "Commercial Air Carrier" }
+    val effectiveTypeCode = liveMetadata?.icaoTypeCode?.ifBlank { null }
+        ?: flightAwareInfo?.aircraftTypeCode?.ifBlank { null }
+        ?: typeInfo.typeCode
+    val resolvedCatalogInfo = remember(effectiveTypeCode, liveMetadata?.model, aircraft?.isHelicopter, typeInfo) {
+        AircraftRegistry.getAircraftType(
+            code = effectiveTypeCode,
+            descriptionHint = liveMetadata?.model ?: typeInfo.modelName,
+            isHelicopterHint = liveMetadata?.isHelicopter == true || typeInfo.isHelicopter || aircraft?.isHelicopter == true
+        )
+    }
+    val effectiveModel = liveMetadata?.model?.ifBlank { null }
+        ?: flightAwareInfo?.airframeModel?.ifBlank { null }
+        ?: resolvedCatalogInfo.modelName
+    val effectiveManufacturer = liveMetadata?.manufacturer?.ifBlank { null }
+        ?: resolvedCatalogInfo.manufacturer
+    val effectiveOperator = liveMetadata?.operator?.ifBlank { null }
+        ?: flightAwareInfo?.operatorName?.ifBlank { null }
+        ?: rawOp.ifBlank { "Unlisted Operator" }
     val effectiveCountry = liveMetadata?.country ?: flightAwareInfo?.countryOfRegistration ?: "United States"
 
-    val isAirbus = liveMetadata?.isAirbus == true ||
-            effectiveManufacturer.contains("Airbus", ignoreCase = true) ||
-            effectiveModel.contains("Airbus", ignoreCase = true) ||
-            effectiveTypeCode in listOf("A319", "A320", "A321", "A339", "A359", "A220", "BCS1", "BCS3")
+    val isHelicopter = liveMetadata?.isHelicopter == true ||
+            resolvedCatalogInfo.isHelicopter ||
+            aircraft?.isHelicopter == true
 
-    val isHelicopter = liveMetadata?.isHelicopter == true || typeInfo.isHelicopter || aircraft?.isHelicopter == true
+    // Ensure photo strictly correlates to verified airframe family; null shows technical schematic instead of guessing
+    val correlatedPhotoName = resolvedCatalogInfo.drawableResName
+        ?: liveMetadata?.correlatedPhotoDrawable
+        ?: flightAwareInfo?.photoDrawableResName
 
-    // Ensure photo strictly correlates to authentic airframe specifications (Airbus gets Airbus, never Boeing!)
-    val correlatedPhotoName = when {
-        isHelicopter -> if (effectiveTypeCode == "UH60") "plane_black_hawk" else "plane_bell_206"
-        isAirbus -> "plane_airbus_a320"
-        effectiveTypeCode in listOf("B77W", "B772", "B788", "B789") -> "plane_boeing_777"
-        effectiveTypeCode in listOf("E170", "E175") -> "plane_boeing_737"
-        effectiveTypeCode in listOf("CRJ9", "GLF6") -> "plane_gulfstream_g650"
-        else -> liveMetadata?.correlatedPhotoDrawable ?: flightAwareInfo?.photoDrawableResName ?: typeInfo.drawableResName
-    }
-
-    val imageResId = if (isHelicopter) {
-        val heliRes = correlatedPhotoName?.let {
-            context.resources.getIdentifier(it, "drawable", context.packageName)
-        } ?: 0
-        if (heliRes != 0) heliRes else context.resources.getIdentifier("plane_bell_206", "drawable", context.packageName)
-    } else {
-        correlatedPhotoName?.let {
-            context.resources.getIdentifier(it, "drawable", context.packageName)
-        } ?: 0
-    }
+    val imageResId = correlatedPhotoName?.let {
+        context.resources.getIdentifier(it, "drawable", context.packageName)
+    } ?: 0
 
     val baseIdentifier = if (aircraft != null) {
         if (aircraft.callsign.isNotBlank()) aircraft.callsign else "HEX #${aircraft.icao24.uppercase()}"
@@ -145,15 +162,14 @@ fun AircraftTypeDetailDialog(
         effectiveModel
     }
 
-    val displayTail = liveMetadata?.tailNumber ?: flightAwareInfo?.tailNumber ?: rawTail
-    val displayHeaderTitle = if (displayTail.isNotBlank()) {
+    val displayTail = liveMetadata?.tailNumber?.ifBlank { null }
+        ?: flightAwareInfo?.tailNumber?.ifBlank { null }
+        ?: rawTail
+    val displayHeaderTitle = if (displayTail.isNotBlank() && !displayTail.equals(baseIdentifier, ignoreCase = true)) {
         "$baseIdentifier · $displayTail"
     } else {
         baseIdentifier
     }
-
-    val cleanCallsign = aircraft?.callsign?.trim()?.replace(" ", "") ?: ""
-    val icaoHex = aircraft?.icao24?.trim()?.uppercase() ?: ""
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -262,7 +278,7 @@ fun AircraftTypeDetailDialog(
                                     .fillMaxWidth()
                                     .height(205.dp),
                                 contentScale = ContentScale.Crop,
-                                error = painterResource(id = imageResId)
+                                error = if (imageResId != 0) painterResource(id = imageResId) else null
                             )
                             // Live Verified Photo overlay tag
                             Box(
@@ -339,6 +355,115 @@ fun AircraftTypeDetailDialog(
                                     text = typeInfo.category,
                                     color = AvionicsTextSecondary,
                                     fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // LIVE VERIFIED FLIGHT ROUTE / ITINERARY SECTION
+                if (aircraft != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    SectionHeader(title = "LIVE FLIGHT ROUTE / ITINERARY")
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = OledSurface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A2B))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            val verifiedRoute = liveRoute
+                            if (verifiedRoute != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "ORIGIN",
+                                            color = AvionicsTextDim,
+                                            fontSize = 8.5.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = verifiedRoute.originIcao,
+                                            color = RadarCyan,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = verifiedRoute.originCity,
+                                            color = AvionicsTextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "✈ ──▶",
+                                        color = RadarGreen,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
+
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.End
+                                    ) {
+                                        Text(
+                                            text = "DESTINATION",
+                                            color = AvionicsTextDim,
+                                            fontSize = 8.5.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = verifiedRoute.destinationIcao,
+                                            color = RadarGreen,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = verifiedRoute.destinationCity,
+                                            color = AvionicsTextSecondary,
+                                            fontSize = 10.sp,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "${verifiedRoute.originName} -> ${verifiedRoute.destinationName}",
+                                    color = AvionicsTextPrimary,
+                                    fontSize = 10.5.sp
+                                )
+                                Text(
+                                    text = "Source: ${verifiedRoute.sourceName}${if (verifiedRoute.airlineName.isNotBlank()) " · ${verifiedRoute.airlineName}" else ""}",
+                                    color = RadarGreen,
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            } else {
+                                Text(
+                                    text = if (cleanCallsign.length >= 4)
+                                        "No verified public IFR route on file for $cleanCallsign"
+                                    else
+                                        "No flight plan callsign broadcast on ADS-B squitter",
+                                    color = AvionicsTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "Use the cross-check links below for live airline / FlightAware / Google status.",
+                                    color = AvionicsTextDim,
+                                    fontSize = 9.5.sp
                                 )
                             }
                         }
@@ -759,15 +884,17 @@ fun AircraftTypeDetailDialog(
                     SpecCard(
                         icon = Icons.Default.Speed,
                         label = "MAX SPEED",
-                        value = "${typeInfo.maxSpeedKts} kts",
-                        sub = if (isHelicopter) "Vne limit" else "Cruise speed",
+                        value = if (resolvedCatalogInfo.maxSpeedKts > 0) "${resolvedCatalogInfo.maxSpeedKts} kts" else "N/A",
+                        sub = if (resolvedCatalogInfo.maxSpeedKts > 0) {
+                            if (isHelicopter) "Vne limit" else "Cruise speed"
+                        } else "Type $effectiveTypeCode",
                         modifier = Modifier.weight(1f)
                     )
                     SpecCard(
                         icon = Icons.Default.VerticalAlignTop,
                         label = "CEILING",
-                        value = "${typeInfo.cruiseAltitudeFt / 1000}k ft",
-                        sub = "FL${typeInfo.cruiseAltitudeFt / 100}",
+                        value = if (resolvedCatalogInfo.cruiseAltitudeFt > 0) "${resolvedCatalogInfo.cruiseAltitudeFt / 1000}k ft" else "N/A",
+                        sub = if (resolvedCatalogInfo.cruiseAltitudeFt > 0) "FL${resolvedCatalogInfo.cruiseAltitudeFt / 100}" else "Pending spec",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -778,29 +905,29 @@ fun AircraftTypeDetailDialog(
                     SpecCard(
                         icon = Icons.Default.Straighten,
                         label = if (isHelicopter) "ROTOR DIAMETER" else "WINGSPAN",
-                        value = "${typeInfo.wingspanMeters} m",
-                        sub = "${(typeInfo.wingspanMeters * 3.28).toInt()} ft",
+                        value = if (resolvedCatalogInfo.wingspanMeters > 0.0) "${resolvedCatalogInfo.wingspanMeters} m" else "N/A",
+                        sub = if (resolvedCatalogInfo.wingspanMeters > 0.0) "${(resolvedCatalogInfo.wingspanMeters * 3.28).toInt()} ft" else "Pending spec",
                         modifier = Modifier.weight(1f)
                     )
                     SpecCard(
                         icon = Icons.Default.AirplanemodeActive,
                         label = "RANGE",
-                        value = "${typeInfo.rangeNm} NM",
-                        sub = "${(typeInfo.rangeNm * 1.852).toInt()} km",
+                        value = if (resolvedCatalogInfo.rangeNm > 0) "${resolvedCatalogInfo.rangeNm} NM" else "N/A",
+                        sub = if (resolvedCatalogInfo.rangeNm > 0) "${(resolvedCatalogInfo.rangeNm * 1.852).toInt()} km" else "Pending spec",
                         modifier = Modifier.weight(1f)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                DetailRow(label = "Powerplant", value = typeInfo.engines)
-                DetailRow(label = "Capacity", value = typeInfo.passengerCapacity)
+                DetailRow(label = "Powerplant", value = resolvedCatalogInfo.engines)
+                DetailRow(label = "Capacity", value = resolvedCatalogInfo.passengerCapacity)
 
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Description
                 Text(
-                    text = typeInfo.description,
+                    text = resolvedCatalogInfo.description,
                     color = AvionicsTextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 18.sp

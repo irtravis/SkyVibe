@@ -185,6 +185,12 @@ object AirportDatabase {
         return null
     }
 
+    fun findAirportInfo(code: String): AirportInfo? {
+        val clean = code.trim().uppercase()
+        if (clean.isEmpty()) return null
+        return codeMap[clean] ?: icaoMap[clean]
+    }
+
     /**
      * Returns matching airports for autocomplete/suggestion list.
      */
